@@ -694,6 +694,7 @@ def get_user_email(request: Request) -> str:
 async def startup():
     load_all()
     seed_zai_models()
+    seed_llm7_models()
     # Auto-sync models for all providers that have a base_url and API keys
     await auto_sync_provider_models()
 
@@ -758,6 +759,77 @@ def seed_zai_models():
         save_models()
         save_tiers()
         logger.info(f"Seeded {added} Z.AI facade models ({len(ZAI_MODELS)} total)")
+
+
+def seed_llm7_models():
+    """Ensure LLM7 provider and facade models exist with correct tiers."""
+    global providers, facade_models
+
+    # Seed LLM7 provider if missing
+    if "llm7" not in providers:
+        providers["llm7"] = {
+            "name": "LLM7.io",
+            "base_url": "https://api.llm7.io/v1",
+            "api_keys": [],
+        }
+        save_providers()
+        provider_status["llm7"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        key_index["llm7"] = 0
+        logger.info("Seeded LLM7 provider")
+
+    # LLM7 models: turbo=free, pro=paid
+    LLM7_MODELS = [
+        # Pro (paid) models
+        {"id": "claude-haiku-4.5",     "name": "Claude Haiku 4.5 (LLM7)",      "tier": "paid",  "model": "claude-haiku-4-5"},
+        {"id": "claude-opus-4.6",      "name": "Claude Opus 4.6 (LLM7)",       "tier": "paid",  "model": "claude-opus-4-6"},
+        {"id": "claude-sonnet-4.6-l7", "name": "Claude Sonnet 4.6 (LLM7)",     "tier": "paid",  "model": "claude-sonnet-4-6"},
+        {"id": "deepseek-v4-flash",    "name": "DeepSeek V4 Flash",             "tier": "paid",  "model": "deepseek-v4-flash"},
+        {"id": "gemini-2.5-flash-l7",  "name": "Gemini 2.5 Flash (LLM7)",      "tier": "paid",  "model": "gemini-2.5-flash"},
+        {"id": "gemini-3.5-flash",     "name": "Gemini 3.5 Flash",              "tier": "paid",  "model": "gemini-3.5-flash"},
+        {"id": "gemma3-27b",           "name": "Gemma 3 27B",                   "tier": "paid",  "model": "gemma3:27b"},
+        {"id": "gpt-5.3-codex-spark",  "name": "GPT-5.3 Codex Spark",          "tier": "paid",  "model": "gpt-5.3-codex-spark"},
+        {"id": "gpt-5.4",             "name": "GPT-5.4",                       "tier": "paid",  "model": "gpt-5.4"},
+        {"id": "gpt-5.4-mini",        "name": "GPT-5.4 Mini",                  "tier": "paid",  "model": "gpt-5.4-mini"},
+        {"id": "gpt-5.5",             "name": "GPT-5.5",                       "tier": "paid",  "model": "gpt-5.5"},
+        {"id": "grok-3",              "name": "Grok 3",                        "tier": "paid",  "model": "grok-3"},
+        {"id": "grok-420-fast",       "name": "Grok 420 Fast",                 "tier": "paid",  "model": "grok-420-fast"},
+        # Turbo (free) models
+        {"id": "codestral-latest",    "name": "Codestral (Free)",              "tier": "free",  "model": "codestral-latest"},
+        {"id": "devstral-small-24b",  "name": "Devstral Small 24B (Free)",     "tier": "free",  "model": "devstral-small-2:24b"},
+        {"id": "ministral-3-8b",     "name": "Ministral 3 8B (Free)",         "tier": "free",  "model": "ministral-3:8b"},
+    ]
+
+    # Also add LLM7 as additional backend to existing facade models where applicable
+    EXISTING_MAPPINGS = {
+        "claude-sonnet-4.6": "claude-sonnet-4-6",
+        "claude-opus-4.8": "claude-opus-4-6",  # LLM7 has opus 4.6
+        "gemini-2.5-pro": "gemini-2.5-flash",  # fallback
+    }
+    for facade_id, llm7_model in EXISTING_MAPPINGS.items():
+        if facade_id in facade_models:
+            backends = facade_models[facade_id].get("backends", [])
+            has_llm7 = any(b.get("provider") == "llm7" for b in backends)
+            if not has_llm7:
+                backends.append({"provider": "llm7", "model": llm7_model})
+                facade_models[facade_id]["backends"] = backends
+
+    added = 0
+    for m in LLM7_MODELS:
+        mid = m["id"]
+        if mid not in facade_models:
+            facade_models[mid] = {
+                "id": mid,
+                "name": m["name"],
+                "tier": m["tier"],
+                "backends": [{"provider": "llm7", "model": m["model"]}],
+            }
+            model_tiers[mid] = m["tier"]
+            added += 1
+
+    if added > 0:
+        save_models()
+        save_tiers()
+        logger.info(f"Seeded {added} LLM7 facade models ({len(LLM7_MODELS)} total)")
 
 
 async def auto_sync_provider_models():
