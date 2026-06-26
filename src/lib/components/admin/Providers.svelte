@@ -21,8 +21,12 @@
 		}
 		return url;
 	}
-	let GATEWAY_URL = normalizeUrl(lsGet('gateway_url')) || 'https://webapp-2nd-service-production.up.railway.app';
-	let GATEWAY_ADMIN_KEY = lsGet('gateway_admin_key') || 'sk-gateway-admin';
+	const DEFAULT_GATEWAY_URL = 'https://webapp-2nd-service-production.up.railway.app';
+	const DEFAULT_GATEWAY_KEY = 'sk-gateway-admin';
+	let savedUrl = normalizeUrl(lsGet('gateway_url'));
+	// Use saved URL only if it contains 'webapp-2nd-service', otherwise use default
+	let GATEWAY_URL = (savedUrl && savedUrl.includes('webapp-2nd-service')) ? savedUrl : DEFAULT_GATEWAY_URL;
+	let GATEWAY_ADMIN_KEY = lsGet('gateway_admin_key') || DEFAULT_GATEWAY_KEY;
 	let showGatewayConfig = false;
 	let connected = false;
 
