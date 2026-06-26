@@ -691,8 +691,71 @@ def get_user_email(request: Request) -> str:
 @app.on_event("startup")
 async def startup():
     load_all()
+    seed_zai_models()
     # Auto-sync models for all providers that have a base_url and API keys
     await auto_sync_provider_models()
+
+
+def seed_zai_models():
+    """Ensure Z.AI provider and all its facade models exist."""
+    global providers, facade_models
+
+    # Seed Z.AI provider if missing
+    if "zai" not in providers:
+        providers["zai"] = {
+            "name": "Z.AI",
+            "base_url": "https://api.z.ai/api/paas/v4",
+            "api_keys": [],
+        }
+        save_providers()
+        provider_status["zai"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        key_index["zai"] = 0
+        logger.info("Seeded Z.AI provider")
+
+    # All Z.AI chat/text models with their tiers
+    ZAI_MODELS = [
+        # Text Models — Paid
+        {"id": "glm-5.2",              "name": "GLM-5.2 (1M CTX)",         "tier": "paid",  "model": "glm-5.2"},
+        {"id": "glm-5.1",              "name": "GLM-5.1",                  "tier": "paid",  "model": "glm-5.1"},
+        {"id": "glm-5",                "name": "GLM-5",                    "tier": "paid",  "model": "glm-5"},
+        {"id": "glm-5-turbo",          "name": "GLM-5 Turbo",              "tier": "paid",  "model": "glm-5-turbo"},
+        {"id": "glm-4.7",              "name": "GLM-4.7",                  "tier": "paid",  "model": "glm-4.7"},
+        {"id": "glm-4.7-flashx",       "name": "GLM-4.7 FlashX",           "tier": "paid",  "model": "glm-4.7-flashx"},
+        {"id": "glm-4.6",              "name": "GLM-4.6",                  "tier": "paid",  "model": "glm-4.6"},
+        {"id": "glm-4.5",              "name": "GLM-4.5",                  "tier": "paid",  "model": "glm-4.5"},
+        {"id": "glm-4.5-x",            "name": "GLM-4.5-X",                "tier": "paid",  "model": "glm-4.5-x"},
+        {"id": "glm-4.5-air",          "name": "GLM-4.5 Air",              "tier": "paid",  "model": "glm-4.5-air"},
+        {"id": "glm-4.5-airx",         "name": "GLM-4.5 AirX",             "tier": "paid",  "model": "glm-4.5-airx"},
+        {"id": "glm-4-32b-0414-128k",  "name": "GLM-4 32B (128K)",         "tier": "paid",  "model": "glm-4-32b-0414-128k"},
+        # Text Models — Free
+        {"id": "glm-4.7-flash",        "name": "GLM-4.7 Flash (Free)",      "tier": "free",  "model": "glm-4.7-flash"},
+        {"id": "glm-4.5-flash",        "name": "GLM-4.5 Flash (Free)",      "tier": "free",  "model": "glm-4.5-flash"},
+        # Vision Models — Paid
+        {"id": "glm-5v-turbo",         "name": "GLM-5V Turbo (Vision)",     "tier": "paid",  "model": "glm-5v-turbo"},
+        {"id": "glm-4.6v",             "name": "GLM-4.6V (Vision)",         "tier": "paid",  "model": "glm-4.6v"},
+        {"id": "glm-4.6v-flashx",      "name": "GLM-4.6V FlashX (Vision)",  "tier": "paid",  "model": "glm-4.6v-flashx"},
+        {"id": "glm-4.5v",             "name": "GLM-4.5V (Vision)",         "tier": "paid",  "model": "glm-4.5v"},
+        # Vision Models — Free
+        {"id": "glm-4.6v-flash",       "name": "GLM-4.6V Flash (Free, Vision)", "tier": "free", "model": "glm-4.6v-flash"},
+    ]
+
+    added = 0
+    for m in ZAI_MODELS:
+        mid = m["id"]
+        if mid not in facade_models:
+            facade_models[mid] = {
+                "id": mid,
+                "name": m["name"],
+                "tier": m["tier"],
+                "backends": [{"provider": "zai", "model": m["model"]}],
+            }
+            model_tiers[mid] = m["tier"]
+            added += 1
+
+    if added > 0:
+        save_models()
+        save_tiers()
+        logger.info(f"Seeded {added} Z.AI facade models ({len(ZAI_MODELS)} total)")
 
 
 async def auto_sync_provider_models():

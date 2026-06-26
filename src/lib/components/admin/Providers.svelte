@@ -98,7 +98,7 @@
 		},
 		zai: {
 			name: 'Z.AI',
-			base_url: 'https://api.z.ai/api/paas/v4/',
+			base_url: 'https://api.z.ai/api/paas/v4',
 			description: 'OpenAI-compatible provider at https://api.z.ai/api/paas/v4. Add multiple API keys — requests automatically fall back to the next key on failure.',
 			docs_url: 'https://docs.z.ai/guides/overview/quick-start',
 			icon: '☁'
