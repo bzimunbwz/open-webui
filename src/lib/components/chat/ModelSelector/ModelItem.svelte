@@ -30,6 +30,35 @@
 
 	export let onClick: () => void = () => {};
 
+	// SaaS: Determine if model is free or paid based on provider/connection
+	const FREE_PROVIDERS = ['freellmapi', 'freemodel.dev', 'freemodel', 'llm7', 'llm7.io'];
+
+	function getModelTier(model: any): 'free' | 'paid' {
+		const id = (model?.id ?? '').toLowerCase();
+		const ownedBy = (model?.owned_by ?? '').toLowerCase();
+		const connectionName = (model?.connection?.name ?? '').toLowerCase();
+		const connectionUrl = (model?.connection?.url ?? '').toLowerCase();
+
+		// Check model tags for explicit free/paid
+		const tags = model?.tags ?? [];
+		for (const tag of tags) {
+			const tagName = (tag?.name ?? '').toLowerCase();
+			if (tagName === 'free') return 'free';
+			if (tagName === 'paid' || tagName === 'premium') return 'paid';
+		}
+
+		// Check if the model comes from a known free provider
+		for (const provider of FREE_PROVIDERS) {
+			if (ownedBy.includes(provider) || connectionName.includes(provider) || connectionUrl.includes(provider)) {
+				return 'free';
+			}
+		}
+
+		return 'paid';
+	}
+
+	$: modelTier = getModelTier(item.model);
+
 	const copyLinkHandler = async (model) => {
 		const baseUrl = window.location.origin;
 		const res = await copyToClipboard(`${baseUrl}/?model=${encodeURIComponent(model.id)}`);
@@ -90,12 +119,22 @@
 				</Tooltip>
 			</div>
 
-			<div class="flex items-center">
+			<div class="flex items-center gap-1.5">
 				<Tooltip content={`${item.label} (${item.value})`} placement="top-start">
 					<div class="line-clamp-1">
 						{item.label}
 					</div>
 				</Tooltip>
+
+				{#if modelTier === 'free'}
+					<span class="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400 uppercase tracking-wide">
+						Free
+					</span>
+				{:else}
+					<span class="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 uppercase tracking-wide">
+						Paid
+					</span>
+				{/if}
 			</div>
 
 			<div class=" shrink-0 flex items-center gap-2">
