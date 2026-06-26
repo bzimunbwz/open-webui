@@ -57,6 +57,7 @@ PAYMENT_SETTINGS_PATH = os.path.join(DATA_DIR, "payment_settings.json")
 PAYMENT_HISTORY_PATH = os.path.join(DATA_DIR, "payment_history.json")
 PROVIDER_MODELS_CACHE_PATH = os.path.join(DATA_DIR, "provider_models_cache.json")
 ENABLED_MODELS_PATH = os.path.join(DATA_DIR, "enabled_models.json")
+PROVIDER_MODEL_TIERS_PATH = os.path.join(DATA_DIR, "provider_model_tiers.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
 
 # Runtime state
@@ -67,6 +68,7 @@ provider_status: dict = {}
 key_index: dict = {}
 provider_models_cache: dict = {}   # provider_id → [model_id, ...]
 enabled_models: dict = {}          # provider_id → [model_id, ...] (enabled models per provider)
+provider_model_tiers: dict = {}    # provider_id → {model_id: "free"|"paid"}
 
 # Subscription state
 packages: dict = {}           # id → {id, name, tier, models: [...], price_monthly, price_yearly, features, ...}
@@ -97,6 +99,7 @@ def load_all():
     load_payment_history()
     load_provider_models_cache()
     load_enabled_models()
+    load_provider_model_tiers()
 
 
 def load_providers():
@@ -336,6 +339,22 @@ def save_enabled_models():
     ensure_data_dir()
     with open(ENABLED_MODELS_PATH, "w") as f:
         json.dump(enabled_models, f, indent=2)
+
+
+def load_provider_model_tiers():
+    global provider_model_tiers
+    try:
+        with open(PROVIDER_MODEL_TIERS_PATH) as f:
+            provider_model_tiers = json.load(f)
+        logger.info(f"Loaded provider model tiers for {len(provider_model_tiers)} providers")
+    except FileNotFoundError:
+        provider_model_tiers = {}
+
+
+def save_provider_model_tiers():
+    ensure_data_dir()
+    with open(PROVIDER_MODEL_TIERS_PATH, "w") as f:
+        json.dump(provider_model_tiers, f, indent=2)
 
 
 # ── API Key Rotation ───────────────────────────────────────────────────────
@@ -763,11 +782,18 @@ def seed_zai_models():
     # Ensure all Z.AI models appear in provider_models_cache (Z.AI API only returns 8)
     all_zai_model_ids = [m["model"] for m in ZAI_MODELS]
     existing_cache = provider_models_cache.get("zai", [])
-    merged = list(dict.fromkeys(existing_cache + all_zai_model_ids))  # dedupe, preserve order
+    merged = list(dict.fromkeys(existing_cache + all_zai_model_ids))
     if len(merged) > len(existing_cache):
         provider_models_cache["zai"] = merged
         save_provider_models_cache()
         logger.info(f"Expanded Z.AI model cache: {len(existing_cache)} → {len(merged)}")
+
+    # Store per-provider model tiers for admin UI badges
+    zai_tiers = provider_model_tiers.get("zai", {})
+    for m in ZAI_MODELS:
+        zai_tiers[m["model"]] = m["tier"]
+    provider_model_tiers["zai"] = zai_tiers
+    save_provider_model_tiers()
 
 
 def seed_llm7_models():
@@ -848,6 +874,13 @@ def seed_llm7_models():
         provider_models_cache["llm7"] = merged
         save_provider_models_cache()
         logger.info(f"Expanded LLM7 model cache: {len(existing_cache)} → {len(merged)}")
+
+    # Store per-provider model tiers for admin UI badges
+    llm7_tiers = provider_model_tiers.get("llm7", {})
+    for m in LLM7_MODELS:
+        llm7_tiers[m["model"]] = m["tier"]
+    provider_model_tiers["llm7"] = llm7_tiers
+    save_provider_model_tiers()
 
 
 async def auto_sync_provider_models():
@@ -1379,13 +1412,35 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
                         "created": 1700000000,
                         "owned_by": provider_id,
                     })
+
+            # Inject tier info into each model from provider_model_tiers
+            tiers = provider_model_tiers.get(provider_id, {})
+            # Also check LLM7-style tier field from API response
+            for m in data.get("data", []):
+                mid = m.get("id", "")
+                if mid in tiers:
+                    m["tier"] = tiers[mid]
+                elif m.get("tier"):
+                    # Map LLM7 tier names: turbo=free, pro=paid
+                    api_tier = m["tier"]
+                    if api_tier == "turbo":
+                        m["tier"] = "free"
+                    elif api_tier == "pro":
+                        m["tier"] = "paid"
+                    # Save discovered tiers
+                    tiers[mid] = m["tier"]
+            if tiers:
+                provider_model_tiers[provider_id] = tiers
+                save_provider_model_tiers()
+
             return data
     except Exception as e:
         # If API fails, return cached models instead of error
         cached = provider_models_cache.get(provider_id, [])
         if cached:
+            tiers = provider_model_tiers.get(provider_id, {})
             return {"object": "list", "data": [
-                {"id": mid, "object": "model", "created": 1700000000, "owned_by": provider_id}
+                {"id": mid, "object": "model", "created": 1700000000, "owned_by": provider_id, "tier": tiers.get(mid)}
                 for mid in cached
             ]}
         raise HTTPException(status_code=502, detail=f"Failed to fetch models from {base_url}: {str(e)}")
@@ -1396,6 +1451,20 @@ async def admin_get_cached_models(provider_id: str, request: Request):
     """Get cached model list for a provider."""
     check_admin(request)
     return {"provider": provider_id, "models": provider_models_cache.get(provider_id, [])}
+
+
+@app.get("/admin/provider-model-tiers")
+async def admin_get_provider_model_tiers(request: Request):
+    """Get tier info for all provider models."""
+    check_admin(request)
+    return {"tiers": provider_model_tiers}
+
+
+@app.get("/admin/provider-model-tiers/{provider_id}")
+async def admin_get_provider_tiers(provider_id: str, request: Request):
+    """Get tier info for a specific provider's models."""
+    check_admin(request)
+    return {"provider": provider_id, "tiers": provider_model_tiers.get(provider_id, {})}
 
 
 # ── Admin: Enabled Models (per-provider model enable/disable) ─────────────

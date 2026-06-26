@@ -61,8 +61,12 @@
 	};
 
 	// ── Model tier lookup (cross-reference with facade models) ───────
-	function getModelTier(providerId: string, modelId: string): 'free' | 'paid' | null {
-		// Check if this backend model is used by any facade model
+	function getModelTier(providerId: string, modelId: string, model?: any): 'free' | 'paid' | null {
+		// 1. Check the model's own tier field (set by gateway from provider_model_tiers)
+		if (model?.tier === 'free' || model?.tier === 'paid') {
+			return model.tier;
+		}
+		// 2. Check if this backend model is used by any facade model
 		for (const fm of facadeModels) {
 			for (const b of (fm.backends || [])) {
 				if (b.provider === providerId && (b.model === modelId || b.model === '*')) {
@@ -294,6 +298,7 @@
 				id: m.id,
 				name: m.name || m.id,
 				owned_by: m.owned_by || '',
+				tier: m.tier || null,
 				context_length: m.context_length || m.context_window || null,
 				capabilities: {
 					tools: m.capabilities?.tools || false,
@@ -773,7 +778,7 @@
 									<!-- Model list -->
 									<div class="divide-y divide-gray-800/50">
 										{#each provider.models.filter(m => !searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.id.toLowerCase().includes(searchQuery.toLowerCase())) as model}
-											{@const tier = getModelTier(provider.id, model.id)}
+											{@const tier = getModelTier(provider.id, model.id, model)}
 											<div class="px-5 py-3 flex items-center justify-between hover:bg-gray-800/30 transition">
 												<div>
 													<div class="font-medium text-sm">{model.name}</div>
