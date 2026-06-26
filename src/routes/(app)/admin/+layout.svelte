@@ -12,6 +12,18 @@
 
 	let loaded = false;
 
+	$: navItems = [
+		{ href: '/admin', label: 'Users', path: '/admin' },
+		...($config?.features.enable_admin_analytics ?? true ? [{ href: '/admin/analytics', label: 'Analytics', path: '/admin/analytics' }] : []),
+		{ href: '/admin/evaluations', label: 'Evaluations', path: '/admin/evaluations' },
+		{ href: '/admin/functions', label: 'Functions', path: '/admin/functions' },
+		{ href: '/admin/providers', label: 'Providers', path: '/admin/providers' },
+		{ href: '/admin/packages', label: 'Packages', path: '/admin/packages' },
+		{ href: '/admin/coupons', label: 'Coupons', path: '/admin/coupons' },
+		{ href: '/admin/payments', label: 'Payments', path: '/admin/payments' },
+		{ href: '/admin/settings', label: 'Settings', path: '/admin/settings' },
+	];
+
 	const isActive = (path: string) => {
 		if (path === '/admin') {
 			return $page.url.pathname === '/admin' || $page.url.pathname.startsWith('/admin/users');
@@ -66,17 +78,6 @@
 					<div
 						class="flex gap-0.5 scrollbar-none overflow-x-auto w-fit text-center text-sm font-medium bg-transparent pb-0"
 					>
-						{@const navItems = [
-							{ href: '/admin', label: 'Users', path: '/admin' },
-							...($config?.features.enable_admin_analytics ?? true ? [{ href: '/admin/analytics', label: 'Analytics', path: '/admin/analytics' }] : []),
-							{ href: '/admin/evaluations', label: 'Evaluations', path: '/admin/evaluations' },
-							{ href: '/admin/functions', label: 'Functions', path: '/admin/functions' },
-							{ href: '/admin/providers', label: 'Providers', path: '/admin/providers' },
-							{ href: '/admin/packages', label: 'Packages', path: '/admin/packages' },
-							{ href: '/admin/coupons', label: 'Coupons', path: '/admin/coupons' },
-							{ href: '/admin/payments', label: 'Payments', path: '/admin/payments' },
-							{ href: '/admin/settings', label: 'Settings', path: '/admin/settings' },
-						]}
 						{#each navItems as item}
 							<a
 								draggable="false"
