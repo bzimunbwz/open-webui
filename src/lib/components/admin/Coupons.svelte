@@ -127,7 +127,7 @@
 			<h1 class="text-2xl font-bold">Coupons</h1>
 			<div class="flex gap-2">
 				<button on:click={loadAll} class="text-xs px-3 py-1.5 bg-gray-800 rounded-lg hover:bg-gray-700 transition">Refresh</button>
-				<button on:click={() => { showForm = true; }} class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition">+ Create Coupons</button>
+				<button on:click={() => { showForm = true; }} class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">+ Create Coupons</button>
 			</div>
 		</div>
 		<p class="text-sm text-gray-500">Create single or bulk coupons. Group coupons for easy management. 1 coupon = 1 use per user.</p>
@@ -135,7 +135,7 @@
 
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
-			<div class="animate-spin w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+			<div class="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full"></div>
 		</div>
 	{:else}
 
@@ -237,7 +237,7 @@
 
 	<!-- Coupon Table -->
 	<div class="px-6 pb-6">
-		<div class="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden">
+		<div class="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead>
 					<tr class="border-b border-gray-800 text-left text-xs text-gray-500">
@@ -255,7 +255,7 @@
 					{#each filteredCoupons as coupon (coupon.code)}
 						<tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
 							<td data-label="Code" class="px-4 py-3">
-								<button on:click={() => copySingle(coupon.code)} class="font-mono text-orange-400 hover:text-orange-300 cursor-pointer" title="Click to copy">
+								<button on:click={() => copySingle(coupon.code)} class="font-mono text-blue-400 hover:text-blue-300 cursor-pointer" title="Click to copy">
 									{coupon.code}
 								</button>
 							</td>

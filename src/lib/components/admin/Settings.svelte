@@ -288,12 +288,11 @@
 <div class="flex flex-col lg:flex-row w-full h-full pb-2 lg:space-x-4">
 	<div
 		id="admin-settings-tabs-container"
-		class="tabs mx-[16px] lg:mx-0 lg:px-[16px] flex flex-row overflow-x-auto gap-2.5 max-w-full lg:gap-0.5 lg:flex-col lg:flex-none lg:w-52 dark:text-gray-200 text-sm font-medium text-left scrollbar-none"
+		class="tabs mx-4 lg:mx-0 lg:px-4 flex flex-row overflow-x-auto gap-2.5 max-w-full lg:gap-0.5 lg:flex-col lg:flex-none lg:w-52 dark:text-gray-200 text-sm font-medium text-left scrollbar-none"
 	>
 		<div
-			class="hidden lg:flex w-full rounded-lg px-2.5 gap-2 bg-gray-100/80 dark:bg-white/[0.05] backdrop-blur-2xl my-1 -mx-1 mt-1.5"
+			class="flex w-full rounded-lg px-2.5 gap-2 bg-gray-100/80 dark:bg-white/[0.05] backdrop-blur-2xl my-1 -mx-1 mt-1.5 border border-transparent dark:border-white/[0.08]"
 			id="settings-search"
-			style="border: 1px solid rgba(255,255,255,0.08);"
 		>
 			<div class="self-center rounded-l-xl bg-transparent">
 				<Search className="size-3.5" strokeWidth="1.5" />
@@ -309,7 +308,7 @@
 		</div>
 
 		{#if search === ''}
-			<div class="hidden lg:block text-[11px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 pt-3 pb-1.5">
+			<div class="hidden lg:block text-[11px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 pt-2 pb-1.5">
 				{$i18n.t('Settings')}
 			</div>
 		{/if}
@@ -498,7 +497,7 @@
 	</div>
 
 	<div
-		class="flex-1 mt-3 lg:mt-1 px-[16px] lg:pr-[16px] lg:pl-4 overflow-y-scroll scrollbar-hidden lg:border-l dark:border-white/[0.06]"
+		class="flex-1 mt-3 lg:mt-1 px-4 lg:pr-4 lg:pl-4 overflow-y-scroll scrollbar-hidden lg:border-l dark:border-white/[0.06]"
 	>
 		{#if selectedTab === 'general'}
 			<General

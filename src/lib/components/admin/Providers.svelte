@@ -465,11 +465,11 @@
 		<!-- Tabs -->
 		<div class="flex gap-1 mt-3 border-b border-gray-800">
 			<button
-				class="px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'providers' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
+				class="px-4 py-2.5 text-sm font-medium transition border-b-2 {activeTab === 'providers' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
 				on:click={() => (activeTab = 'providers')}
 			>Providers ({providers.length})</button>
 			<button
-				class="px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'models' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
+				class="px-4 py-2.5 text-sm font-medium transition border-b-2 {activeTab === 'models' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
 				on:click={() => (activeTab = 'models')}
 			>Facade Models ({facadeModels.length})</button>
 		</div>
@@ -479,20 +479,20 @@
 	{#if showGatewayConfig}
 		<div class="mx-6 mb-4 bg-gray-900 rounded-xl p-5 border border-gray-800">
 			<h3 class="text-sm font-semibold mb-3">Gateway Connection</h3>
-			<div class="flex gap-3 mb-3">
-				<div class="flex-1">
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+				<div>
 					<label class="text-xs text-gray-400 mb-1 block">Gateway URL</label>
 					<input bind:value={GATEWAY_URL} placeholder="https://your-gateway.up.railway.app"
 						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
 				</div>
-				<div class="flex-1">
+				<div>
 					<label class="text-xs text-gray-400 mb-1 block">Admin Key</label>
 					<input type="password" bind:value={GATEWAY_ADMIN_KEY} placeholder="sk-gateway-admin"
 						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
 				</div>
 			</div>
 			<button on:click={saveGatewayConfig}
-				class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">
+				class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">
 				Connect
 			</button>
 		</div>
@@ -500,7 +500,7 @@
 
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
-			<div class="animate-spin w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+			<div class="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full"></div>
 		</div>
 	{:else if connected}
 
@@ -525,7 +525,7 @@
 			{/if}
 			<button
 				on:click={() => (showAddProvider = true)}
-				class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center gap-1"
+				class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-1"
 			>
 				<span class="text-sm">+</span> Add Provider
 			</button>
@@ -533,18 +533,18 @@
 		<!-- Add Provider Form -->
 		{#if showAddProvider}
 			<div class="mx-6 mb-4 bg-gray-900 rounded-xl p-5 border border-gray-800">
-				<div class="flex items-center justify-between mb-3">
+				<div class="flex flex-wrap items-center justify-between mb-3 gap-2">
 					<h3 class="text-sm font-semibold">Add New Provider</h3>
-					<div class="flex gap-1">
+					<div class="flex flex-wrap gap-1">
 						{#each Object.entries(PROVIDER_TEMPLATES) as [tid, tmpl]}
 							<button on:click={() => applyTemplate(tid)}
-								class="text-xs px-2 py-1 bg-gray-800 rounded hover:bg-gray-700 transition">
+								class="text-xs px-2 py-1.5 bg-gray-800 rounded-lg hover:bg-gray-700 transition">
 								{tmpl.name}
 							</button>
 						{/each}
 					</div>
 				</div>
-				<div class="grid grid-cols-3 gap-3 mb-3">
+				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
 					<div>
 						<label class="text-xs text-gray-400 mb-1 block">Provider ID</label>
 						<input bind:value={newProvider.id} placeholder="e.g. freemodel"
@@ -571,7 +571,7 @@
 					></textarea>
 				</div>
 				<div class="flex gap-2">
-					<button on:click={createProvider} class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">Create</button>
+					<button on:click={createProvider} class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">Create</button>
 					<button on:click={() => (showAddProvider = false)} class="px-4 py-2 bg-gray-800 text-sm rounded-lg hover:bg-gray-700 transition">Cancel</button>
 				</div>
 			</div>
@@ -632,7 +632,7 @@
 											<p class="text-xs text-gray-500 mb-3">
 												{PROVIDER_TEMPLATES[provider.id].description}
 												{#if PROVIDER_TEMPLATES[provider.id]?.docs_url}
-													<a href={PROVIDER_TEMPLATES[provider.id].docs_url} target="_blank" class="text-orange-400 hover:text-orange-300 ml-1">Docs →</a>
+													<a href={PROVIDER_TEMPLATES[provider.id].docs_url} target="_blank" class="text-blue-400 hover:text-blue-300 ml-1">Docs →</a>
 												{/if}
 											</p>
 										{/if}
@@ -657,14 +657,14 @@
 												></textarea>
 												<div class="flex flex-col gap-1">
 													<input placeholder="Label (optional)"
-														class="rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm w-40" />
+														class="rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm w-full sm:w-40" />
 												</div>
 											</div>
 										</div>
 
 										<div class="flex gap-2 mb-4">
 											<button on:click={() => { bulkUploadTarget = provider.id; bulkAddKeys(); }}
-												class="px-3 py-1.5 bg-orange-600 text-white text-xs rounded-lg hover:bg-orange-700 transition flex items-center gap-1">
+												class="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition flex items-center gap-1">
 												<span>+</span> Add Keys
 											</button>
 											<button on:click={() => syncModels(provider)}
@@ -720,26 +720,27 @@
 							{#if provider.models && provider.models.length > 0}
 								<div class="border-t border-gray-800">
 									<!-- Model toolbar -->
-									<div class="px-5 py-3 flex items-center gap-3 bg-gray-900/40">
-										<div class="flex-1 relative">
+									<div class="px-4 sm:px-5 py-3 flex flex-wrap items-center gap-2 sm:gap-3 bg-gray-900/40">
+										<div class="w-full sm:flex-1 relative">
 											<input
 												bind:value={searchQuery}
 												placeholder="Search {provider.name} models..."
-												class="w-full rounded-lg border border-gray-700 bg-gray-800 pl-8 pr-3 py-1.5 text-sm"
+												class="w-full rounded-lg border border-gray-700 bg-gray-800 pl-8 pr-3 py-2 text-sm"
 											/>
-											<svg class="absolute left-2.5 top-2 w-3.5 h-3.5 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+											<svg class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
 												<path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
 											</svg>
 										</div>
-										<button
+										<div class="flex flex-wrap gap-2">
+											<button
 												on:click={() => {
 													const filtered = provider.models.filter(m => !searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.id.toLowerCase().includes(searchQuery.toLowerCase()));
 													filtered.forEach(m => provider.enabledModels.add(m.id));
 													markUnsaved();
 													toast.success(`Enabled ${filtered.length} models`);
 												}}
-												class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
-												<span>👁</span> Enable All
+												class="text-xs px-3 py-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1 whitespace-nowrap">
+												Enable All
 											</button>
 											<button
 												on:click={() => {
@@ -748,13 +749,14 @@
 													markUnsaved();
 													toast.success(`Disabled ${filtered.length} models`);
 												}}
-												class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
-												<span>👁</span> Disable All
+												class="text-xs px-3 py-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1 whitespace-nowrap">
+												Disable All
 											</button>
-										<button on:click={() => syncModels(provider)}
-											class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
-											↻ Refresh
-										</button>
+											<button on:click={() => syncModels(provider)}
+												class="text-xs px-3 py-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1 whitespace-nowrap">
+												↻ Refresh
+											</button>
+										</div>
 									</div>
 
 									<div class="px-5 py-1 text-xs text-gray-500 flex items-center justify-between">
@@ -779,13 +781,14 @@
 									<div class="divide-y divide-gray-800/50">
 										{#each provider.models.filter(m => !searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.id.toLowerCase().includes(searchQuery.toLowerCase())) as model}
 											{@const tier = getModelTier(provider.id, model.id, model)}
-											<div class="px-5 py-3 flex items-center justify-between hover:bg-gray-800/30 transition">
-												<div>
-													<div class="font-medium text-sm">{model.name}</div>
-													<div class="text-xs text-orange-400 font-mono">{model.id}</div>
+											<div class="px-4 sm:px-5 py-3 flex flex-wrap items-center gap-2 hover:bg-gray-800/30 transition">
+												<!-- Name + ID -->
+												<div class="flex-1 min-w-0">
+													<div class="font-medium text-sm truncate">{model.name}</div>
+													<div class="text-xs text-blue-400 font-mono truncate">{model.id}</div>
 												</div>
-												<div class="flex items-center gap-2">
-													<!-- Tier badge -->
+												<!-- Badges -->
+												<div class="flex flex-wrap items-center gap-1.5">
 													{#if tier === 'free'}
 														<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-500/20 text-green-400">FREE</span>
 													{:else if tier === 'paid'}
@@ -793,12 +796,11 @@
 													{:else}
 														<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-400">UNMAPPED</span>
 													{/if}
-													<!-- Provider badge -->
-													<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 uppercase">
+													<span class="hidden sm:inline text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 uppercase">
 														{model.owned_by || provider.name}
 													</span>
 													{#if model.context_length}
-														<span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-300">
+														<span class="hidden md:inline text-[10px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-300">
 															{model.context_length >= 1000000
 																? `${(model.context_length / 1000000).toFixed(1)}M CTX`
 																: model.context_length >= 1000
@@ -807,27 +809,26 @@
 														</span>
 													{/if}
 													{#if model.capabilities?.tools}
-														<span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-900/40 text-purple-400">⚡ TOOLS</span>
+														<span class="hidden lg:inline text-[10px] px-2 py-0.5 rounded-full bg-purple-900/40 text-purple-400">TOOLS</span>
 													{/if}
 													{#if model.capabilities?.vision}
-														<span class="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-400">👁 VISION</span>
+														<span class="hidden lg:inline text-[10px] px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-400">VISION</span>
 													{/if}
-
-													<!-- Toggle -->
-													<button
-														class="w-10 h-5 rounded-full transition relative {provider.enabledModels.has(model.id) ? 'bg-orange-500' : 'bg-gray-600'}"
-														on:click={() => {
-															if (provider.enabledModels.has(model.id)) {
-																provider.enabledModels.delete(model.id);
-															} else {
-																provider.enabledModels.add(model.id);
-															}
-															markUnsaved();
-														}}
-													>
-														<span class="absolute top-0.5 {provider.enabledModels.has(model.id) ? 'right-0.5' : 'left-0.5'} w-4 h-4 rounded-full bg-white transition-all shadow"></span>
-													</button>
 												</div>
+												<!-- Toggle -->
+												<button
+													class="w-11 h-6 rounded-full transition relative flex-shrink-0 {provider.enabledModels.has(model.id) ? 'bg-blue-500' : 'bg-gray-600'}"
+													on:click={() => {
+														if (provider.enabledModels.has(model.id)) {
+															provider.enabledModels.delete(model.id);
+														} else {
+															provider.enabledModels.add(model.id);
+														}
+														markUnsaved();
+													}}
+												>
+													<span class="absolute top-0.5 {provider.enabledModels.has(model.id) ? 'right-0.5' : 'left-0.5'} w-5 h-5 rounded-full bg-white transition-all shadow"></span>
+												</button>
 											</div>
 										{/each}
 									</div>
@@ -836,7 +837,7 @@
 								<div class="px-5 py-4 text-center border-t border-gray-800">
 									<p class="text-sm text-gray-500 mb-2">No models loaded. Click "Sync Models" to fetch from this provider.</p>
 									<button on:click={() => syncModels(provider)}
-										class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition">
+										class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
 										↻ Sync Models
 									</button>
 								</div>
@@ -851,7 +852,7 @@
 				<div class="text-center py-16">
 					<p class="text-gray-400 mb-2">No providers configured yet.</p>
 					<button on:click={() => (showAddProvider = true)}
-						class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">
+						class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">
 						+ Add Your First Provider
 					</button>
 				</div>
@@ -866,7 +867,7 @@
 			<div class="flex justify-end">
 				<button
 					on:click={() => { showAddFacadeModel = true; editingModel = null; }}
-					class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center gap-1"
+					class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-1"
 				>
 					<span class="text-sm">+</span> Add Facade Model
 				</button>
@@ -878,7 +879,7 @@
 				{@const fm = editingModel || newFacadeModel}
 				<div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
 					<h3 class="text-sm font-semibold mb-3">{isEdit ? `Edit: ${fm.name}` : 'Create Facade Model'}</h3>
-					<div class="grid grid-cols-3 gap-3 mb-3">
+					<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
 						<div>
 							<label class="text-xs text-gray-400 mb-1 block">Model ID</label>
 							<input bind:value={fm.id} placeholder="e.g. claude-opus-4.8" disabled={isEdit}
@@ -903,18 +904,18 @@
 					<div class="mb-3">
 						<label class="text-xs text-gray-400 mb-2 block">Backends (fallback order — first provider tried first)</label>
 						{#each fm.backends as backend, i}
-							<div class="flex gap-2 mb-2 items-center">
-								<span class="text-xs text-gray-600 w-5">{i + 1}.</span>
+							<div class="flex flex-wrap gap-2 mb-2 items-center">
+								<span class="text-xs text-gray-600 w-5 flex-shrink-0">{i + 1}.</span>
 								<select bind:value={backend.provider}
 									on:change={() => { backend.model = ''; }}
-									class="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
+									class="flex-1 min-w-[140px] rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
 									<option value="">Select provider...</option>
 									{#each providers as p}
 										<option value={p.id}>{p.name}</option>
 									{/each}
 								</select>
 								<select bind:value={backend.model}
-									class="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-mono">
+									class="flex-1 min-w-[140px] rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-mono">
 									<option value="">Select model...</option>
 									<option value="*">★ All models (auto-fallback)</option>
 									{#if backend.provider}
@@ -927,11 +928,11 @@
 									{/if}
 								</select>
 								<button on:click={() => removeBackend(fm, i)}
-									class="text-red-500 hover:text-red-400 text-sm px-1">✕</button>
+									class="text-red-500 hover:text-red-400 text-sm px-2 py-1 flex-shrink-0">✕</button>
 							</div>
 						{/each}
 						<button on:click={() => addBackend(fm)}
-							class="text-xs text-orange-400 hover:text-orange-300 transition mt-1">+ Add fallback backend</button>
+							class="text-xs text-blue-400 hover:text-blue-300 transition mt-1">+ Add fallback backend</button>
 					</div>
 
 					<div class="flex gap-2">
@@ -942,7 +943,7 @@
 								class="px-4 py-2 bg-gray-800 text-sm rounded-lg hover:bg-gray-700 transition">Cancel</button>
 						{:else}
 							<button on:click={createFacadeModel}
-								class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">Create</button>
+								class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">Create</button>
 							<button on:click={() => (showAddFacadeModel = false)}
 								class="px-4 py-2 bg-gray-800 text-sm rounded-lg hover:bg-gray-700 transition">Cancel</button>
 						{/if}
@@ -1016,7 +1017,7 @@
 					<p class="text-gray-400 mb-2">No facade models configured yet.</p>
 					<p class="text-xs text-gray-500 mb-4">Facade models are what users see. Each maps to one or more provider backends for fallback.</p>
 					<button on:click={() => (showAddFacadeModel = true)}
-						class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">
+						class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">
 						+ Create Your First Facade Model
 					</button>
 				</div>

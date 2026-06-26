@@ -112,15 +112,15 @@
 		<!-- Tabs -->
 		<div class="flex gap-1 mt-3 border-b border-gray-800 overflow-x-auto scrollbar-none">
 			<button
-				class="whitespace-nowrap flex-shrink-0 px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'settings' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
+				class="whitespace-nowrap flex-shrink-0 px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'settings' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
 				on:click={() => (activeTab = 'settings')}
 			>Payment Settings</button>
 			<button
-				class="whitespace-nowrap flex-shrink-0 px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'subscriptions' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
+				class="whitespace-nowrap flex-shrink-0 px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'subscriptions' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
 				on:click={() => (activeTab = 'subscriptions')}
 			>Subscriptions ({subs.length})</button>
 			<button
-				class="whitespace-nowrap flex-shrink-0 px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'history' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
+				class="whitespace-nowrap flex-shrink-0 px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'history' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
 				on:click={() => (activeTab = 'history')}
 			>Payment History {pendingPayments.length ? `(${pendingPayments.length} pending)` : ''}</button>
 		</div>
@@ -128,7 +128,7 @@
 
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
-			<div class="animate-spin w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+			<div class="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full"></div>
 		</div>
 	{:else}
 
@@ -184,7 +184,7 @@
 			</div>
 
 			<button on:click={saveSettings}
-				class="px-6 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition font-medium">
+				class="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
 				Save Payment Settings
 			</button>
 		</div>
@@ -194,7 +194,7 @@
 		<div class="px-6 pb-6">
 			<div class="flex justify-end mb-4">
 				<button on:click={() => { showGrant = !showGrant; }}
-					class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition">+ Grant Subscription</button>
+					class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">+ Grant Subscription</button>
 			</div>
 
 			{#if showGrant}
@@ -227,7 +227,7 @@
 				</div>
 			{/if}
 
-			<div class="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden">
+			<div class="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden overflow-x-auto">
 				<table class="w-full text-sm">
 					<thead>
 						<tr class="border-b border-gray-800 text-left text-xs text-gray-500">
@@ -247,7 +247,7 @@
 								<td data-label="Email" class="px-4 py-3 font-mono text-xs">{sub.email}</td>
 								<td data-label="Package" class="px-4 py-3">{sub.package_name}</td>
 								<td data-label="Tier" class="px-4 py-3">
-									<span class="text-[11px] font-bold px-2 py-0.5 rounded-full {sub.tier === 'enterprise' ? 'bg-purple-500/20 text-purple-400' : sub.tier === 'pro' ? 'bg-orange-500/20 text-orange-400' : 'bg-green-500/20 text-green-400'} uppercase">{sub.tier}</span>
+									<span class="text-[11px] font-bold px-2 py-0.5 rounded-full {sub.tier === 'enterprise' ? 'bg-purple-500/20 text-purple-400' : sub.tier === 'pro' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'} uppercase">{sub.tier}</span>
 								</td>
 								<td data-label="Method" class="px-4 py-3 text-xs text-gray-400">{sub.payment_method || '—'}</td>
 								<td data-label="Started" class="px-4 py-3 text-xs text-gray-500">{sub.started_at ? sub.started_at.slice(0, 10) : '—'}</td>
@@ -274,7 +274,7 @@
 				</div>
 			{/if}
 
-			<div class="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden">
+			<div class="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden overflow-x-auto">
 				<table class="w-full text-sm">
 					<thead>
 						<tr class="border-b border-gray-800 text-left text-xs text-gray-500">

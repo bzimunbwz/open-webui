@@ -100,7 +100,7 @@
 			<h1 class="text-2xl font-bold">Subscription Packages</h1>
 			<div class="flex gap-2">
 				<button on:click={loadAll} class="text-xs px-3 py-1.5 bg-gray-800 rounded-lg hover:bg-gray-700 transition">Refresh</button>
-				<button on:click={startNew} class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition">+ New Package</button>
+				<button on:click={startNew} class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">+ New Package</button>
 			</div>
 		</div>
 		<p class="text-sm text-gray-500">Create and manage subscription tiers. Assign facade models to each package.</p>
@@ -108,7 +108,7 @@
 
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
-			<div class="animate-spin w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+			<div class="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full"></div>
 		</div>
 	{:else}
 
@@ -174,7 +174,7 @@
 					</div>
 				{/each}
 				<button on:click={() => { form.features = [...form.features, '']; }}
-					class="text-xs text-orange-400 hover:text-orange-300 mt-1">+ Add feature</button>
+					class="text-xs text-blue-400 hover:text-blue-300 mt-1">+ Add feature</button>
 			</div>
 
 			<!-- Model access -->
@@ -184,7 +184,7 @@
 					{#each facadeModels as model}
 						<button
 							on:click={() => toggleModel(model.id)}
-							class="text-xs px-3 py-1.5 rounded-lg border transition {form.models.includes(model.id) ? 'bg-orange-600 border-orange-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'}"
+							class="text-xs px-3 py-1.5 rounded-lg border transition {form.models.includes(model.id) ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'}"
 						>{model.name}</button>
 					{/each}
 				</div>
@@ -194,27 +194,27 @@
 			<div class="flex items-center gap-2 mb-4">
 				<button
 					on:click={() => { form.active = !form.active; }}
-					class="w-10 h-5 rounded-full transition relative {form.active ? 'bg-green-500' : 'bg-gray-600'}"
+					class="w-11 h-6 rounded-full transition relative {form.active ? 'bg-blue-500' : 'bg-gray-600'}"
 				>
-					<span class="absolute top-0.5 {form.active ? 'right-0.5' : 'left-0.5'} w-4 h-4 rounded-full bg-white transition-all shadow"></span>
+					<span class="absolute top-0.5 {form.active ? 'right-0.5' : 'left-0.5'} w-5 h-5 rounded-full bg-white transition-all shadow"></span>
 				</button>
 				<span class="text-sm text-gray-400">{form.active ? 'Active' : 'Inactive'}</span>
 			</div>
 
 			<div class="flex gap-2">
-				<button on:click={save} class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">{editingPkg ? 'Save' : 'Create'}</button>
+				<button on:click={save} class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">{editingPkg ? 'Save' : 'Create'}</button>
 				<button on:click={() => { showForm = false; editingPkg = null; }} class="px-4 py-2 bg-gray-800 text-sm rounded-lg hover:bg-gray-700 transition">Cancel</button>
 			</div>
 		</div>
 	{/if}
 
 	<!-- Package Cards -->
-	<div class="grid grid-cols-1 md:grid-cols-3 gap-4 px-6 pb-6">
+	<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 px-6 pb-6">
 		{#each packages as pkg (pkg.id)}
 			<div class="bg-gray-900/50 rounded-xl border border-gray-800 p-5 flex flex-col {!pkg.active ? 'opacity-50' : ''}">
 				<div class="flex items-center justify-between mb-2">
 					<h3 class="font-bold text-lg">{pkg.name}</h3>
-					<span class="text-[11px] font-bold px-2 py-0.5 rounded-full {pkg.tier === 'enterprise' ? 'bg-purple-500/20 text-purple-400' : pkg.tier === 'pro' ? 'bg-orange-500/20 text-orange-400' : 'bg-green-500/20 text-green-400'} uppercase">{pkg.tier}</span>
+					<span class="text-[11px] font-bold px-2 py-0.5 rounded-full {pkg.tier === 'enterprise' ? 'bg-purple-500/20 text-purple-400' : pkg.tier === 'pro' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'} uppercase">{pkg.tier}</span>
 				</div>
 
 				<p class="text-xs text-gray-500 mb-3">{pkg.description || 'No description'}</p>
@@ -252,6 +252,9 @@
 				</div>
 			</div>
 		{/each}
+		{#if packages.length === 0}
+			<div class="col-span-full text-center py-12 text-gray-500">No packages configured. Click "+ New Package" to create one.</div>
+		{/if}
 	</div>
 	{/if}
 </div>
