@@ -33,19 +33,29 @@
 	// ── Data ───────────────────────────────────────────────────────────
 	let providers: any[] = [];
 	let providerHealth: any = {};
+	let facadeModels: any[] = [];
 	let loading = true;
 
 	// ── UI state ──────────────────────────────────────────────────────
 	let showAddProvider = false;
+	let showAddFacadeModel = false;
+	let editingModel: any = null;
 	let expandedProviders: Record<string, boolean> = {};
 	let bulkUploadTarget = '';
 	let bulkText = '';
 	let searchQuery = '';
+	let modelSearchQuery = '';
+	let activeTab: 'providers' | 'models' = 'providers';
 
 	// New provider form
 	let newProvider = {
 		id: '', name: '', base_url: '', api_keys: [''],
 		description: '', docs_url: '', tier: 'free'
+	};
+
+	// New facade model form
+	let newFacadeModel = {
+		id: '', name: '', tier: 'free', backends: [{ provider: '', model: '' }]
 	};
 
 	// ── Known provider templates ──────────────────────────────────────
@@ -124,7 +134,9 @@
 		try {
 			const config = await gw('/admin/config');
 			const health = await gw('/admin/providers');
+			const modelsRes = await gw('/admin/models');
 			providerHealth = health.providers || {};
+			facadeModels = modelsRes.models || [];
 
 			providers = Object.entries(config.providers || {}).map(([id, p]: [string, any]) => {
 				const tmpl = PROVIDER_TEMPLATES[id] || {};
@@ -266,6 +278,76 @@
 		}
 	}
 
+	// ── Facade Model CRUD ────────────────────────────────────────────
+
+	async function createFacadeModel() {
+		if (!newFacadeModel.id || !newFacadeModel.name) {
+			toast.error('Model ID and Display Name are required');
+			return;
+		}
+		const backends = newFacadeModel.backends.filter(b => b.provider && b.model);
+		if (!backends.length) {
+			toast.error('Add at least one backend (provider + model)');
+			return;
+		}
+		try {
+			await gw('/admin/models', 'POST', {
+				id: newFacadeModel.id,
+				name: newFacadeModel.name,
+				tier: newFacadeModel.tier,
+				backends,
+			});
+			toast.success(`Facade model "${newFacadeModel.name}" created`);
+			newFacadeModel = { id: '', name: '', tier: 'free', backends: [{ provider: '', model: '' }] };
+			showAddFacadeModel = false;
+			await loadAll();
+		} catch (e: any) { toast.error(e.message); }
+	}
+
+	async function updateFacadeModel(model: any) {
+		try {
+			await gw(`/admin/models/${model.id}`, 'PUT', {
+				name: model.name,
+				tier: model.tier,
+				backends: model.backends,
+			});
+			toast.success(`"${model.name}" updated`);
+			editingModel = null;
+			await loadAll();
+		} catch (e: any) { toast.error(e.message); }
+	}
+
+	async function deleteFacadeModel(id: string, name: string) {
+		if (!confirm(`Delete facade model "${name}"? Users will no longer see it.`)) return;
+		try {
+			await gw(`/admin/models/${id}`, 'DELETE');
+			toast.success(`"${name}" deleted`);
+			await loadAll();
+		} catch (e: any) { toast.error(e.message); }
+	}
+
+	async function toggleTier(model: any) {
+		const newTier = model.tier === 'free' ? 'paid' : 'free';
+		try {
+			await gw(`/admin/models/${model.id}/tier`, 'POST', { tier: newTier });
+			model.tier = newTier;
+			facadeModels = facadeModels;
+			toast.success(`"${model.name}" set to ${newTier.toUpperCase()}`);
+		} catch (e: any) { toast.error(e.message); }
+	}
+
+	function addBackend(model: any) {
+		model.backends = [...(model.backends || []), { provider: '', model: '' }];
+		if (editingModel) editingModel = editingModel;
+		else newFacadeModel = newFacadeModel;
+	}
+
+	function removeBackend(model: any, idx: number) {
+		model.backends = model.backends.filter((_: any, i: number) => i !== idx);
+		if (editingModel) editingModel = editingModel;
+		else newFacadeModel = newFacadeModel;
+	}
+
 	// ── Gateway config ────────────────────────────────────────────────
 
 	function saveGatewayConfig() {
@@ -319,15 +401,21 @@
 					on:click={loadAll}
 					class="text-xs px-3 py-1.5 bg-gray-800 rounded-lg hover:bg-gray-700 transition"
 				>Refresh</button>
-				<button
-					on:click={() => (showAddProvider = true)}
-					class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center gap-1"
-				>
-					<span class="text-sm">+</span> Add Provider
-				</button>
 			</div>
 		</div>
-		<p class="text-sm text-gray-500">Manage AI model providers and toggle individual models</p>
+		<p class="text-sm text-gray-500">Manage AI model providers, facade models, and tiers</p>
+
+		<!-- Tabs -->
+		<div class="flex gap-1 mt-3 border-b border-gray-800">
+			<button
+				class="px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'providers' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
+				on:click={() => (activeTab = 'providers')}
+			>Providers ({providers.length})</button>
+			<button
+				class="px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'models' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
+				on:click={() => (activeTab = 'models')}
+			>Facade Models ({facadeModels.length})</button>
+		</div>
 	</div>
 
 	<!-- Gateway Config Banner -->
@@ -359,6 +447,16 @@
 		</div>
 	{:else if connected}
 
+	{#if activeTab === 'providers'}
+		<!-- Add Provider Button -->
+		<div class="flex justify-end px-6 pt-2">
+			<button
+				on:click={() => (showAddProvider = true)}
+				class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center gap-1"
+			>
+				<span class="text-sm">+</span> Add Provider
+			</button>
+		</div>
 		<!-- Add Provider Form -->
 		{#if showAddProvider}
 			<div class="mx-6 mb-4 bg-gray-900 rounded-xl p-5 border border-gray-800">
@@ -650,10 +748,160 @@
 				</div>
 			{/if}
 		</div>
+
+	{:else if activeTab === 'models'}
+		<!-- ══ FACADE MODELS TAB ══════════════════════════════════════ -->
+		<div class="flex flex-col gap-4 px-6 pb-6 pt-2">
+
+			<!-- Add button -->
+			<div class="flex justify-end">
+				<button
+					on:click={() => { showAddFacadeModel = true; editingModel = null; }}
+					class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center gap-1"
+				>
+					<span class="text-sm">+</span> Add Facade Model
+				</button>
+			</div>
+
+			<!-- Add / Edit Facade Model Form -->
+			{#if showAddFacadeModel || editingModel}
+				{@const isEdit = !!editingModel}
+				{@const fm = editingModel || newFacadeModel}
+				<div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+					<h3 class="text-sm font-semibold mb-3">{isEdit ? `Edit: ${fm.name}` : 'Create Facade Model'}</h3>
+					<div class="grid grid-cols-3 gap-3 mb-3">
+						<div>
+							<label class="text-xs text-gray-400 mb-1 block">Model ID</label>
+							<input bind:value={fm.id} placeholder="e.g. claude-opus-4.8" disabled={isEdit}
+								class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-mono {isEdit ? 'opacity-50' : ''}" />
+						</div>
+						<div>
+							<label class="text-xs text-gray-400 mb-1 block">Display Name (shown to users)</label>
+							<input bind:value={fm.name} placeholder="e.g. Claude Opus 4.8"
+								class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
+						</div>
+						<div>
+							<label class="text-xs text-gray-400 mb-1 block">Tier</label>
+							<select bind:value={fm.tier}
+								class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
+								<option value="free">FREE</option>
+								<option value="paid">PAID</option>
+							</select>
+						</div>
+					</div>
+
+					<!-- Backends -->
+					<div class="mb-3">
+						<label class="text-xs text-gray-400 mb-2 block">Backends (fallback order — first provider tried first)</label>
+						{#each fm.backends as backend, i}
+							<div class="flex gap-2 mb-2 items-center">
+								<span class="text-xs text-gray-600 w-5">{i + 1}.</span>
+								<select bind:value={backend.provider}
+									class="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
+									<option value="">Select provider...</option>
+									{#each providers as p}
+										<option value={p.id}>{p.name}</option>
+									{/each}
+								</select>
+								<input bind:value={backend.model} placeholder="Provider's model ID (e.g. gpt-4o)"
+									class="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-mono" />
+								<button on:click={() => removeBackend(fm, i)}
+									class="text-red-500 hover:text-red-400 text-sm px-1">✕</button>
+							</div>
+						{/each}
+						<button on:click={() => addBackend(fm)}
+							class="text-xs text-orange-400 hover:text-orange-300 transition mt-1">+ Add fallback backend</button>
+					</div>
+
+					<div class="flex gap-2">
+						{#if isEdit}
+							<button on:click={() => updateFacadeModel(fm)}
+								class="px-4 py-2 bg-green-700 text-white text-sm rounded-lg hover:bg-green-600 transition">Save Changes</button>
+							<button on:click={() => (editingModel = null)}
+								class="px-4 py-2 bg-gray-800 text-sm rounded-lg hover:bg-gray-700 transition">Cancel</button>
+						{:else}
+							<button on:click={createFacadeModel}
+								class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">Create</button>
+							<button on:click={() => (showAddFacadeModel = false)}
+								class="px-4 py-2 bg-gray-800 text-sm rounded-lg hover:bg-gray-700 transition">Cancel</button>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Search -->
+			{#if facadeModels.length > 0}
+				<div class="relative">
+					<input bind:value={modelSearchQuery} placeholder="Search facade models..."
+						class="w-full rounded-lg border border-gray-700 bg-gray-800 pl-8 pr-3 py-2 text-sm" />
+					<svg class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+						<path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
+					</svg>
+				</div>
+			{/if}
+
+			<!-- Facade Model Cards -->
+			{#each facadeModels.filter(m => !modelSearchQuery || m.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) || m.id.toLowerCase().includes(modelSearchQuery.toLowerCase())) as model (model.id)}
+				<div class="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden">
+					<div class="px-5 py-4 flex items-center justify-between">
+						<div class="flex items-center gap-3">
+							<div>
+								<div class="font-semibold text-base">{model.name}</div>
+								<span class="text-xs text-gray-500 font-mono">{model.id}</span>
+							</div>
+						</div>
+						<div class="flex items-center gap-3">
+							<!-- Tier badge + toggle -->
+							<button on:click={() => toggleTier(model)}
+								class="text-[11px] font-bold px-3 py-1 rounded-full transition cursor-pointer {model.tier === 'free' ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'}">
+								{model.tier === 'free' ? 'FREE' : 'PAID'}
+							</button>
+
+							<!-- Backend count -->
+							<span class="text-xs text-gray-500">{(model.backends || []).length} backend{(model.backends || []).length !== 1 ? 's' : ''}</span>
+
+							<!-- Edit -->
+							<button on:click={() => { editingModel = JSON.parse(JSON.stringify(model)); showAddFacadeModel = false; }}
+								class="text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600 transition">Edit</button>
+
+							<!-- Delete -->
+							<button on:click={() => deleteFacadeModel(model.id, model.name)}
+								class="text-red-500 hover:text-red-400 transition">
+								<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+									<path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd" />
+								</svg>
+							</button>
+						</div>
+					</div>
+
+					<!-- Backends list -->
+					{#if model.backends && model.backends.length > 0}
+						<div class="border-t border-gray-800 px-5 py-3 bg-gray-900/30">
+							<span class="text-xs text-gray-500 mb-1 block">Fallback chain:</span>
+							<div class="flex flex-wrap gap-2">
+								{#each model.backends as b, i}
+									<span class="text-xs px-2 py-1 bg-gray-800 rounded-lg border border-gray-700 font-mono">
+										{i + 1}. {b.provider} → {b.model}
+									</span>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/each}
+
+			{#if facadeModels.length === 0}
+				<div class="text-center py-16">
+					<p class="text-gray-400 mb-2">No facade models configured yet.</p>
+					<p class="text-xs text-gray-500 mb-4">Facade models are what users see. Each maps to one or more provider backends for fallback.</p>
+					<button on:click={() => (showAddFacadeModel = true)}
+						class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">
+						+ Create Your First Facade Model
+					</button>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
 	{/if}
 </div>
-
-<!-- Bulk Upload Modal -->
-{#if bulkUploadTarget && bulkText}
-	<!-- handled inline now -->
-{/if}
