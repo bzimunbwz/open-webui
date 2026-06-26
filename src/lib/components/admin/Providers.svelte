@@ -155,8 +155,14 @@
 			});
 
 			connected = true;
-			// Auto-expand all
+			// Auto-expand all and auto-sync models
 			providers.forEach(p => { expandedProviders[p.id] = true; });
+			// Auto-sync models for all providers that have base_url and keys
+			for (const p of providers) {
+				if (p.base_url && p.api_keys.length > 0) {
+					syncModels(p).catch(() => {});
+				}
+			}
 		} catch (e: any) {
 			toast.error(`Connection failed: ${e.message}`);
 			connected = false;
