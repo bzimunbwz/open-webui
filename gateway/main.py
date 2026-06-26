@@ -472,7 +472,9 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                     # Validate non-streaming response has content
                     data = resp.json()
                     choices = data.get("choices", [])
-                    if not choices or not choices[0].get("message", {}).get("content"):
+                    msg = choices[0].get("message", {}) if choices else {}
+                    # Accept if content OR reasoning_content is present (Z.AI thinking mode)
+                    if not choices or (not msg.get("content") and not msg.get("reasoning_content")):
                         logger.warning(f"Provider {pid}/{backend_model} returned empty response")
                         await client.aclose()
                         mark_model_failure(pid, backend_model)
