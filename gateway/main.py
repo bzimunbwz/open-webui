@@ -56,6 +56,7 @@ SUBSCRIPTIONS_PATH = os.path.join(DATA_DIR, "subscriptions.json")
 PAYMENT_SETTINGS_PATH = os.path.join(DATA_DIR, "payment_settings.json")
 PAYMENT_HISTORY_PATH = os.path.join(DATA_DIR, "payment_history.json")
 PROVIDER_MODELS_CACHE_PATH = os.path.join(DATA_DIR, "provider_models_cache.json")
+ENABLED_MODELS_PATH = os.path.join(DATA_DIR, "enabled_models.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
 
 # Runtime state
@@ -65,6 +66,7 @@ model_tiers: dict = {}
 provider_status: dict = {}
 key_index: dict = {}
 provider_models_cache: dict = {}   # provider_id → [model_id, ...]
+enabled_models: dict = {}          # provider_id → [model_id, ...] (enabled models per provider)
 
 # Subscription state
 packages: dict = {}           # id → {id, name, tier, models: [...], price_monthly, price_yearly, features, ...}
@@ -94,6 +96,7 @@ def load_all():
     load_payment_settings()
     load_payment_history()
     load_provider_models_cache()
+    load_enabled_models()
 
 
 def load_providers():
@@ -317,6 +320,22 @@ def save_provider_models_cache():
     ensure_data_dir()
     with open(PROVIDER_MODELS_CACHE_PATH, "w") as f:
         json.dump(provider_models_cache, f, indent=2)
+
+
+def load_enabled_models():
+    global enabled_models
+    try:
+        with open(ENABLED_MODELS_PATH) as f:
+            enabled_models = json.load(f)
+        logger.info(f"Loaded enabled models for {len(enabled_models)} providers")
+    except FileNotFoundError:
+        enabled_models = {}
+
+
+def save_enabled_models():
+    ensure_data_dir()
+    with open(ENABLED_MODELS_PATH, "w") as f:
+        json.dump(enabled_models, f, indent=2)
 
 
 # ── API Key Rotation ───────────────────────────────────────────────────────
@@ -1201,6 +1220,39 @@ async def admin_get_cached_models(provider_id: str, request: Request):
     """Get cached model list for a provider."""
     check_admin(request)
     return {"provider": provider_id, "models": provider_models_cache.get(provider_id, [])}
+
+
+# ── Admin: Enabled Models (per-provider model enable/disable) ─────────────
+
+@app.get("/admin/enabled-models")
+async def admin_get_enabled_models(request: Request):
+    """Get all enabled models per provider."""
+    check_admin(request)
+    return {"enabled_models": enabled_models}
+
+
+@app.put("/admin/enabled-models")
+async def admin_save_enabled_models(request: Request):
+    """Save enabled models for all providers at once."""
+    global enabled_models
+    check_admin(request)
+    body = await request.json()
+    enabled_models = body.get("enabled_models", {})
+    save_enabled_models()
+    total = sum(len(v) for v in enabled_models.values())
+    logger.info(f"Saved enabled models: {total} models across {len(enabled_models)} providers")
+    return {"status": "ok", "providers": len(enabled_models), "total_models": total}
+
+
+@app.put("/admin/enabled-models/{provider_id}")
+async def admin_save_provider_enabled_models(provider_id: str, request: Request):
+    """Save enabled models for a single provider."""
+    check_admin(request)
+    body = await request.json()
+    enabled_models[provider_id] = body.get("models", [])
+    save_enabled_models()
+    logger.info(f"Saved {len(enabled_models[provider_id])} enabled models for {provider_id}")
+    return {"status": "ok", "provider": provider_id, "count": len(enabled_models[provider_id])}
 
 
 # ── Admin: Model CRUD ──────────────────────────────────────────────────────

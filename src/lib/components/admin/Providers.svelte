@@ -46,6 +46,8 @@
 	let searchQuery = '';
 	let modelSearchQuery = '';
 	let activeTab: 'providers' | 'models' = 'providers';
+	let savingEnabled = false;
+	let hasUnsavedChanges = false;
 
 	// New provider form
 	let newProvider = {
@@ -151,6 +153,13 @@
 			providerHealth = health.providers || {};
 			facadeModels = modelsRes.models || [];
 
+			// Load saved enabled models state
+			let savedEnabled: Record<string, string[]> = {};
+			try {
+				const em = await gw('/admin/enabled-models');
+				savedEnabled = em.enabled_models || {};
+			} catch { /* first time — no saved state yet */ }
+
 			providers = Object.entries(config.providers || {}).map(([id, p]: [string, any]) => {
 				const tmpl = PROVIDER_TEMPLATES[id] || {};
 				return {
@@ -163,11 +172,12 @@
 					icon: tmpl.icon || '☁',
 					health: providerHealth[id] || {},
 					models: [], // populated by sync
-					enabledModels: new Set(),
+					enabledModels: new Set(savedEnabled[id] || []),
 				};
 			});
 
 			connected = true;
+			hasUnsavedChanges = false;
 			// Auto-expand all and auto-sync models
 			providers.forEach(p => { expandedProviders[p.id] = true; });
 			// Auto-sync models for all providers that have base_url and keys
@@ -396,6 +406,28 @@
 		}
 	}
 
+	async function saveEnabledModels() {
+		savingEnabled = true;
+		try {
+			const payload: Record<string, string[]> = {};
+			for (const p of providers) {
+				payload[p.id] = [...p.enabledModels];
+			}
+			await gw('/admin/enabled-models', 'PUT', { enabled_models: payload });
+			hasUnsavedChanges = false;
+			const total = Object.values(payload).reduce((a, b) => a + b.length, 0);
+			toast.success(`Saved ${total} enabled models across ${providers.length} providers`);
+		} catch (e: any) {
+			toast.error(`Failed to save: ${e.message}`);
+		}
+		savingEnabled = false;
+	}
+
+	function markUnsaved() {
+		hasUnsavedChanges = true;
+		providers = providers; // trigger reactivity
+	}
+
 	onMount(() => { loadAll(); });
 </script>
 
@@ -468,8 +500,24 @@
 	{:else if connected}
 
 	{#if activeTab === 'providers'}
-		<!-- Add Provider Button -->
-		<div class="flex justify-end px-6 pt-2">
+		<!-- Action bar -->
+		<div class="flex items-center justify-between px-6 pt-2">
+			{#if hasUnsavedChanges}
+				<button
+					on:click={saveEnabledModels}
+					disabled={savingEnabled}
+					class="text-xs px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-600 transition font-medium flex items-center gap-1.5 {savingEnabled ? 'opacity-50' : ''}"
+				>
+					{#if savingEnabled}
+						<span class="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full"></span>
+						Saving...
+					{:else}
+						💾 Save Model States
+					{/if}
+				</button>
+			{:else}
+				<span class="text-xs text-gray-600">All changes saved</span>
+			{/if}
 			<button
 				on:click={() => (showAddProvider = true)}
 				class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center gap-1"
@@ -682,7 +730,7 @@
 												on:click={() => {
 													const filtered = provider.models.filter(m => !searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.id.toLowerCase().includes(searchQuery.toLowerCase()));
 													filtered.forEach(m => provider.enabledModels.add(m.id));
-													providers = providers;
+													markUnsaved();
 													toast.success(`Enabled ${filtered.length} models`);
 												}}
 												class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
@@ -692,7 +740,7 @@
 												on:click={() => {
 													const filtered = provider.models.filter(m => !searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.id.toLowerCase().includes(searchQuery.toLowerCase()));
 													filtered.forEach(m => provider.enabledModels.delete(m.id));
-													providers = providers;
+													markUnsaved();
 													toast.success(`Disabled ${filtered.length} models`);
 												}}
 												class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
@@ -704,8 +752,22 @@
 										</button>
 									</div>
 
-									<div class="px-5 py-1 text-xs text-gray-500">
-										{provider.models.length} models available
+									<div class="px-5 py-1 text-xs text-gray-500 flex items-center justify-between">
+										<span>{provider.models.length} models available · {provider.enabledModels.size} enabled</span>
+										{#if hasUnsavedChanges}
+											<button
+												on:click={saveEnabledModels}
+												disabled={savingEnabled}
+												class="text-xs px-3 py-1 bg-green-700 text-white rounded-lg hover:bg-green-600 transition flex items-center gap-1 {savingEnabled ? 'opacity-50' : ''}"
+											>
+												{#if savingEnabled}
+													<span class="animate-spin inline-block w-3 h-3 border border-white border-t-transparent rounded-full"></span>
+													Saving...
+												{:else}
+													💾 Save Changes
+												{/if}
+											</button>
+										{/if}
 									</div>
 
 									<!-- Model list -->
@@ -755,7 +817,7 @@
 															} else {
 																provider.enabledModels.add(model.id);
 															}
-															providers = providers;
+															markUnsaved();
 														}}
 													>
 														<span class="absolute top-0.5 {provider.enabledModels.has(model.id) ? 'right-0.5' : 'left-0.5'} w-4 h-4 rounded-full bg-white transition-all shadow"></span>
