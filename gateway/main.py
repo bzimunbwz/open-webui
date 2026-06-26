@@ -55,6 +55,7 @@ COUPONS_PATH = os.path.join(DATA_DIR, "coupons.json")
 SUBSCRIPTIONS_PATH = os.path.join(DATA_DIR, "subscriptions.json")
 PAYMENT_SETTINGS_PATH = os.path.join(DATA_DIR, "payment_settings.json")
 PAYMENT_HISTORY_PATH = os.path.join(DATA_DIR, "payment_history.json")
+PROVIDER_MODELS_CACHE_PATH = os.path.join(DATA_DIR, "provider_models_cache.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
 
 # Runtime state
@@ -63,6 +64,7 @@ facade_models: dict = {}
 model_tiers: dict = {}
 provider_status: dict = {}
 key_index: dict = {}
+provider_models_cache: dict = {}   # provider_id → [model_id, ...]
 
 # Subscription state
 packages: dict = {}           # id → {id, name, tier, models: [...], price_monthly, price_yearly, features, ...}
@@ -91,6 +93,7 @@ def load_all():
     load_subscriptions()
     load_payment_settings()
     load_payment_history()
+    load_provider_models_cache()
 
 
 def load_providers():
@@ -300,6 +303,22 @@ def save_payment_history():
         json.dump(payment_history, f, indent=2)
 
 
+def load_provider_models_cache():
+    global provider_models_cache
+    try:
+        with open(PROVIDER_MODELS_CACHE_PATH) as f:
+            provider_models_cache = json.load(f)
+        logger.info(f"Loaded provider models cache for {len(provider_models_cache)} providers")
+    except FileNotFoundError:
+        provider_models_cache = {}
+
+
+def save_provider_models_cache():
+    ensure_data_dir()
+    with open(PROVIDER_MODELS_CACHE_PATH, "w") as f:
+        json.dump(provider_models_cache, f, indent=2)
+
+
 # ── API Key Rotation ───────────────────────────────────────────────────────
 
 def get_next_key(provider_id: str) -> str:
@@ -367,30 +386,75 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
         req_body = {**body, "model": backend_model}
 
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            # Don't use 'async with' — we need the client alive for streaming
+            client = httpx.AsyncClient(timeout=timeout)
+            try:
                 if stream:
                     req = client.build_request("POST", url, json=req_body, headers=headers)
                     resp = await client.send(req, stream=True)
                     if resp.status_code == 429:
                         await resp.aclose()
+                        await client.aclose()
                         mark_key_failed(pid, api_key)
                         continue
                     if resp.status_code in RETRYABLE or resp.status_code >= 400:
                         await resp.aclose()
+                        await client.aclose()
                         mark_failure(pid)
                         return None
+
+                    # Read first chunk to verify the response has actual content
+                    first_chunk = b""
+                    async for chunk in resp.aiter_bytes(4096):
+                        first_chunk = chunk
+                        break
+
+                    if not first_chunk or len(first_chunk.strip()) == 0:
+                        logger.warning(f"Provider {pid}/{backend_model} returned empty stream")
+                        await resp.aclose()
+                        await client.aclose()
+                        return None
+
+                    # Check if the first chunk contains an error
+                    try:
+                        chunk_text = first_chunk.decode("utf-8", errors="ignore")
+                        if '"error"' in chunk_text and '"message"' in chunk_text and "data:" not in chunk_text:
+                            logger.warning(f"Provider {pid}/{backend_model} returned error: {chunk_text[:200]}")
+                            await resp.aclose()
+                            await client.aclose()
+                            return None
+                    except Exception:
+                        pass
+
                     mark_success(pid)
-                    return resp
+                    # Return client + resp + first_chunk so caller can stream properly
+                    return {"client": client, "resp": resp, "first_chunk": first_chunk, "stream": True}
                 else:
                     resp = await client.post(url, json=req_body, headers=headers)
                     if resp.status_code == 429:
+                        await client.aclose()
                         mark_key_failed(pid, api_key)
                         continue
                     if resp.status_code in RETRYABLE or resp.status_code >= 400:
+                        await client.aclose()
                         mark_failure(pid)
                         return None
+
+                    # Validate non-streaming response has content
+                    data = resp.json()
+                    choices = data.get("choices", [])
+                    if not choices or not choices[0].get("message", {}).get("content"):
+                        logger.warning(f"Provider {pid}/{backend_model} returned empty response")
+                        await client.aclose()
+                        return None
+
                     mark_success(pid)
-                    return resp
+                    await client.aclose()
+                    return {"data": data, "stream": False}
+
+            except Exception as inner_e:
+                await client.aclose()
+                raise inner_e
 
         except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
             mark_failure(pid)
@@ -580,11 +644,15 @@ def check_admin(request: Request):
 
 def get_user_email(request: Request) -> str:
     """Extract user email from Open WebUI headers."""
-    return (
+    # Open WebUI sends X-OpenWebUI-User-Email when ENABLE_FORWARD_USER_INFO_HEADERS=true
+    email = (
+        request.headers.get("X-OpenWebUI-User-Email", "") or
         request.headers.get("X-User-Email", "") or
         request.headers.get("X-Forwarded-Email", "") or
-        request.headers.get("Authorization", "").replace("Bearer ", "")
+        ""
     )
+    # Don't fall back to Authorization header — that's an API key, not an email
+    return email.strip().lower()
 
 
 # ── Public Routes ───────────────────────────────────────────────────────────
@@ -648,20 +716,43 @@ async def chat_completions(request: Request):
             })
         )
 
+    # Expand backends: if model is "*" or empty, use all cached models from that provider
+    expanded_backends = []
     for backend in facade.get("backends", []):
+        pid = backend["provider"]
+        bmodel = backend.get("model", "")
+        if bmodel == "*" or bmodel == "":
+            # Use all cached models from this provider as fallbacks
+            cached = provider_models_cache.get(pid, [])
+            if cached:
+                for cm in cached:
+                    expanded_backends.append({"provider": pid, "model": cm})
+                logger.info(f"Expanded wildcard for {pid}: {len(cached)} models")
+            else:
+                logger.warning(f"No cached models for provider {pid} — sync models first")
+        else:
+            expanded_backends.append(backend)
+
+    for backend in expanded_backends:
         pid = backend["provider"]
         bmodel = backend["model"]
         logger.info(f"Trying {facade['name']} → {pid}/{bmodel}")
 
-        resp = await try_provider(pid, bmodel, body, stream=stream)
-        if resp is not None:
-            if stream:
-                async def stream_out():
+        result = await try_provider(pid, bmodel, body, stream=stream)
+        if result is not None:
+            if result.get("stream"):
+                http_resp = result["resp"]
+                http_client = result["client"]
+                first_chunk = result["first_chunk"]
+
+                async def stream_out(resp=http_resp, client=http_client, first=first_chunk):
                     try:
+                        yield first
                         async for chunk in resp.aiter_bytes(1024):
                             yield chunk
                     finally:
                         await resp.aclose()
+                        await client.aclose()
 
                 return StreamingResponse(
                     stream_out(),
@@ -669,10 +760,10 @@ async def chat_completions(request: Request):
                     headers={"X-Gateway-Provider": pid, "X-Model-Tier": tier},
                 )
             else:
-                result = resp.json()
-                result["model"] = requested_model
+                data = result["data"]
+                data["model"] = requested_model
                 return JSONResponse(
-                    content=result,
+                    content=data,
                     headers={"X-Gateway-Provider": pid, "X-Model-Tier": tier},
                 )
 
@@ -998,9 +1089,23 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
         async with httpx.AsyncClient(timeout=15) as client:
             res = await client.get(f"{base_url}/models", headers=headers)
             res.raise_for_status()
-            return res.json()
+            data = res.json()
+            # Cache the model IDs for this provider (used for wildcard backends)
+            model_ids = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+            if model_ids:
+                provider_models_cache[provider_id] = model_ids
+                save_provider_models_cache()
+                logger.info(f"Cached {len(model_ids)} models for provider {provider_id}")
+            return data
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch models from {base_url}: {str(e)}")
+
+
+@app.get("/admin/providers/{provider_id}/cached-models")
+async def admin_get_cached_models(provider_id: str, request: Request):
+    """Get cached model list for a provider."""
+    check_admin(request)
+    return {"provider": provider_id, "models": provider_models_cache.get(provider_id, [])}
 
 
 # ── Admin: Model CRUD ──────────────────────────────────────────────────────
@@ -1384,6 +1489,50 @@ async def admin_reject_payment(payment_id: str, request: Request):
             save_payment_history()
             return {"status": "rejected", "payment_id": payment_id}
     raise HTTPException(status_code=404, detail="Payment not found or not pending")
+
+
+@app.post("/admin/test-model")
+async def admin_test_model(request: Request):
+    """Test a facade model with a simple prompt and return the raw response."""
+    check_admin(request)
+    body = await request.json()
+    model_id = body.get("model", "")
+    facade = facade_models.get(model_id)
+    if not facade:
+        return {"error": f"Model '{model_id}' not found"}
+
+    test_body = {
+        "model": model_id,
+        "messages": [{"role": "user", "content": "Say 'hello' in one word."}],
+        "max_tokens": 10,
+        "stream": False,
+    }
+
+    # Expand backends
+    expanded = []
+    for backend in facade.get("backends", []):
+        pid = backend["provider"]
+        bmodel = backend.get("model", "")
+        if bmodel == "*" or bmodel == "":
+            cached = provider_models_cache.get(pid, [])
+            for cm in cached:
+                expanded.append({"provider": pid, "model": cm})
+        else:
+            expanded.append(backend)
+
+    results = []
+    for backend in expanded[:5]:  # Test first 5 only
+        pid = backend["provider"]
+        bmodel = backend["model"]
+        result = await try_provider(pid, bmodel, test_body, stream=False)
+        if result is not None:
+            data = result.get("data", {})
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            results.append({"provider": pid, "model": bmodel, "status": "ok", "response": content})
+        else:
+            results.append({"provider": pid, "model": bmodel, "status": "failed"})
+
+    return {"facade_model": model_id, "backends_tested": len(results), "results": results}
 
 
 @app.post("/admin/reload")

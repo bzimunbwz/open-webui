@@ -291,7 +291,8 @@
 			toast.error('Model ID and Display Name are required');
 			return;
 		}
-		const backends = newFacadeModel.backends.filter(b => b.provider && b.model);
+		// Allow model="*" (all provider models) or a specific model
+		const backends = newFacadeModel.backends.filter(b => b.provider && (b.model || b.model === '*'));
 		if (!backends.length) {
 			toast.error('Add at least one backend (provider + model)');
 			return;
@@ -802,14 +803,26 @@
 							<div class="flex gap-2 mb-2 items-center">
 								<span class="text-xs text-gray-600 w-5">{i + 1}.</span>
 								<select bind:value={backend.provider}
+									on:change={() => { backend.model = ''; }}
 									class="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
 									<option value="">Select provider...</option>
 									{#each providers as p}
 										<option value={p.id}>{p.name}</option>
 									{/each}
 								</select>
-								<input bind:value={backend.model} placeholder="Provider's model ID (e.g. gpt-4o)"
-									class="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-mono" />
+								<select bind:value={backend.model}
+									class="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-mono">
+									<option value="">Select model...</option>
+									<option value="*">★ All models (auto-fallback)</option>
+									{#if backend.provider}
+										{@const prov = providers.find(p => p.id === backend.provider)}
+										{#if prov?.models?.length}
+											{#each prov.models as m}
+												<option value={m.id}>{m.name || m.id}</option>
+											{/each}
+										{/if}
+									{/if}
+								</select>
 								<button on:click={() => removeBackend(fm, i)}
 									class="text-red-500 hover:text-red-400 text-sm px-1">✕</button>
 							</div>
@@ -886,7 +899,7 @@
 							<div class="flex flex-wrap gap-2">
 								{#each model.backends as b, i}
 									<span class="text-xs px-2 py-1 bg-gray-800 rounded-lg border border-gray-700 font-mono">
-										{i + 1}. {b.provider} → {b.model}
+										{i + 1}. {b.provider} → {b.model === '*' ? '★ All models' : b.model}
 									</span>
 								{/each}
 							</div>
