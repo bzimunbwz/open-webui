@@ -716,6 +716,9 @@ async def startup():
     seed_llm7_models()
     # Auto-sync models for all providers that have a base_url and API keys
     await auto_sync_provider_models()
+    # Populate Provider-tab catalogs (model lists + FREE/PAID badges) last so the
+    # official tier classification is authoritative over live-sync results.
+    seed_provider_catalogs()
 
 
 def seed_zai_models():
@@ -881,6 +884,108 @@ def seed_llm7_models():
         llm7_tiers[m["model"]] = m["tier"]
     provider_model_tiers["llm7"] = llm7_tiers
     save_provider_model_tiers()
+
+
+def seed_provider_catalogs():
+    """Populate the admin Provider tab with the full official model list +
+    free/paid badge for each provider.
+
+    This sets provider_models_cache (the model list shown per provider) and
+    provider_model_tiers (the FREE/PAID badge next to each model). It is
+    CATALOG-ONLY: it does NOT create user-facing facade models, so it never
+    re-bloats the chat model selector.
+
+    Tiers are taken from each provider's OFFICIAL classification:
+      - FreeModel.dev: the default route (api.freemodel.dev) is free and serves
+        every model id; higher T1+/T2+ routes are paid but expose the same ids,
+        so all default-route models are badged free.
+      - LLM7.io: the per-model `tier` field from /v1/models (turbo=free,
+        pro / untiered usage-based = paid).
+      - Z.AI: the official pricing page (docs.z.ai/guides/overview/pricing):
+        GLM *-Flash models are free, all other text/vision models are paid.
+    """
+    CATALOGS = {
+        # FreeModel.dev - default free route
+        "freemodel": {
+            "gpt-5.5": "free",
+            "gpt-5.4": "free",
+            "gpt-5.4-mini": "free",
+            "gpt-5.3-codex": "free",
+        },
+        # LLM7.io - official tier field (turbo=free, pro/usage-based=paid).
+        # Union of observed /v1/models snapshots; LLM7 rotates which subset is
+        # live by availability, so every id it may serve carries a badge.
+        "llm7": {
+            "codestral-latest": "free",
+            "devstral-small-2:24b": "free",
+            "qwen3-235b": "free",
+            "ministral-3:8b": "free",
+            "claude-haiku-4-5": "paid",
+            "claude-opus-4-6": "paid",
+            "claude-sonnet-4-6": "paid",
+            "deepseek-v4-flash": "paid",
+            "gemini-2.5-flash": "paid",
+            "gemini-3.5-flash": "paid",
+            "gemma3:27b": "paid",
+            "glm-5": "paid",
+            "glm-5.1": "paid",
+            "gpt-5.3-codex-spark": "paid",
+            "gpt-5.4": "paid",
+            "gpt-5.4-mini": "paid",
+            "gpt-5.5": "paid",
+            "grok-3": "paid",
+            "grok-420-fast": "paid",
+            "kimi-k2.6": "paid",
+            "minimax-m2.7": "paid",
+        },
+        # Z.AI - official pricing page (text + vision models)
+        "zai": {
+            "glm-4.7-flash": "free",
+            "glm-4.5-flash": "free",
+            "glm-4.6v-flash": "free",
+            "glm-5.2": "paid",
+            "glm-5.1": "paid",
+            "glm-5": "paid",
+            "glm-5-turbo": "paid",
+            "glm-4.7": "paid",
+            "glm-4.7-flashx": "paid",
+            "glm-4.6": "paid",
+            "glm-4.5": "paid",
+            "glm-4.5-x": "paid",
+            "glm-4.5-air": "paid",
+            "glm-4.5-airx": "paid",
+            "glm-4-32b-0414-128k": "paid",
+            "glm-5v-turbo": "paid",
+            "glm-4.6v": "paid",
+            "glm-4.6v-flashx": "paid",
+            "glm-4.5v": "paid",
+            "glm-ocr": "paid",
+        },
+    }
+
+    changed = False
+    for pid, tiers in CATALOGS.items():
+        model_ids = list(tiers.keys())
+        existing_cache = provider_models_cache.get(pid, [])
+        merged = list(dict.fromkeys(existing_cache + model_ids))
+        if merged != existing_cache:
+            provider_models_cache[pid] = merged
+            changed = True
+        prov_tiers = provider_model_tiers.get(pid, {})
+        for mid, t in tiers.items():
+            if prov_tiers.get(mid) != t:
+                prov_tiers[mid] = t
+                changed = True
+        provider_model_tiers[pid] = prov_tiers
+
+    if changed:
+        save_provider_models_cache()
+        save_provider_model_tiers()
+    logger.info(
+        "Seeded provider catalogs for Provider tab: "
+        f"freemodel={len(CATALOGS['freemodel'])}, "
+        f"llm7={len(CATALOGS['llm7'])}, zai={len(CATALOGS['zai'])} models"
+    )
 
 
 async def auto_sync_provider_models():
