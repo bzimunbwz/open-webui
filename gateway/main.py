@@ -285,6 +285,7 @@ def load_payment_settings():
             "binance_api_secret": "",
             "bep20_address": "",
             "trc20_address": "",
+            "binance_proxy": "",
         }
 
 
@@ -568,6 +569,41 @@ def generate_coupon_code(length: int = 8) -> str:
 
 # ── Payment Verification ────────────────────────────────────────────────────
 
+# ── Binance / Payment Proxy ─────────────────────────────────────────────────
+
+def get_binance_proxy() -> str:
+    """Outbound proxy URL for Binance API calls.
+
+    Read from payment_settings["binance_proxy"] (admin-editable, persisted to the
+    /app/data volume) or the BINANCE_PROXY env var. Never hard-coded, so proxy
+    credentials stay out of the git repo. Supports socks5://, http://, https://.
+    """
+    return (payment_settings.get("binance_proxy") or os.getenv("BINANCE_PROXY", "")).strip()
+
+
+def mask_proxy(proxy: str) -> str:
+    """Hide the password when echoing a proxy URL to the admin UI or logs."""
+    if not proxy:
+        return ""
+    try:
+        scheme, rest = proxy.split("://", 1)
+        if "@" in rest:
+            creds, host = rest.rsplit("@", 1)
+            user = creds.split(":", 1)[0]
+            return f"{scheme}://{user}:****@{host}"
+        return proxy
+    except Exception:
+        return "****"
+
+
+def binance_http_client(timeout: float = 15.0) -> httpx.AsyncClient:
+    """httpx client that routes through the configured proxy when one is set."""
+    proxy = get_binance_proxy()
+    if proxy:
+        return httpx.AsyncClient(timeout=timeout, proxy=proxy)
+    return httpx.AsyncClient(timeout=timeout)
+
+
 async def verify_binance_pay(tx_id: str, expected_amount: float, user_email: str) -> dict:
     """Verify payment via Binance Pay personal account API."""
     api_key = payment_settings.get("binance_api_key", "")
@@ -583,7 +619,7 @@ async def verify_binance_pay(tx_id: str, expected_amount: float, user_email: str
     headers = {"X-MBX-APIKEY": api_key}
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with binance_http_client(15) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
                 return {"verified": False, "error": f"Binance API returned {resp.status_code}"}
@@ -1871,7 +1907,7 @@ async def admin_get_payment_settings(request: Request):
 async def admin_update_payment_settings(request: Request):
     check_admin(request)
     body = await request.json()
-    for key in ["binance_uid", "binance_api_key", "binance_api_secret", "bep20_address", "trc20_address"]:
+    for key in ["binance_uid", "binance_api_key", "binance_api_secret", "bep20_address", "trc20_address", "binance_proxy"]:
         if key in body:
             payment_settings[key] = body[key]
     save_payment_settings()
@@ -1881,6 +1917,75 @@ async def admin_update_payment_settings(request: Request):
         "trc20_address": payment_settings.get("trc20_address", ""),
         "binance_api_configured": bool(payment_settings.get("binance_api_key")),
     }}
+
+@app.post("/admin/test-binance-proxy")
+async def admin_test_binance_proxy(request: Request):
+    """Connectivity + auth self-test for Binance through the configured proxy.
+
+    Returns the proxy egress IP (proves the proxy is actually used), a public
+    Binance ping, and — when API keys are set — a signed Binance API call. The
+    admin panel renders this so you can confirm the proxy AND the Binance API
+    work together.
+    """
+    check_admin(request)
+    proxy = get_binance_proxy()
+    result = {
+        "ok": False,
+        "proxy": mask_proxy(proxy),
+        "proxy_configured": bool(proxy),
+        "egress_ip": None,
+        "binance_ping": {"ok": False},
+        "binance_api": {"ok": False, "configured": False},
+    }
+
+    # 1) Egress IP through the proxy (confirms the proxy is in the path)
+    try:
+        async with binance_http_client(15) as client:
+            r = await client.get("https://api.ipify.org?format=json")
+            result["egress_ip"] = r.json().get("ip")
+    except Exception as e:
+        result["egress_ip_error"] = f"{type(e).__name__}: {e}"
+
+    # 2) Public Binance reachability (no auth required)
+    try:
+        async with binance_http_client(15) as client:
+            t0 = time.time()
+            r = await client.get("https://api.binance.com/api/v3/ping")
+            result["binance_ping"] = {
+                "ok": r.status_code == 200,
+                "status": r.status_code,
+                "latency_ms": int((time.time() - t0) * 1000),
+            }
+    except Exception as e:
+        result["binance_ping"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    # 3) Signed Binance API call (only when API key + secret are configured)
+    api_key = payment_settings.get("binance_api_key", "")
+    api_secret = payment_settings.get("binance_api_secret", "")
+    if api_key and api_secret:
+        try:
+            timestamp = int(time.time() * 1000)
+            params = f"timestamp={timestamp}&recvWindow=60000"
+            signature = hmac.new(api_secret.encode(), params.encode(), hashlib.sha256).hexdigest()
+            url = f"https://api.binance.com/sapi/v1/pay/transactions?{params}&signature={signature}"
+            async with binance_http_client(15) as client:
+                r = await client.get(url, headers={"X-MBX-APIKEY": api_key})
+            entry = {"ok": r.status_code == 200, "status": r.status_code, "configured": True}
+            if r.status_code != 200:
+                try:
+                    entry["error"] = r.json()
+                except Exception:
+                    entry["error"] = r.text[:200]
+            result["binance_api"] = entry
+        except Exception as e:
+            result["binance_api"] = {"ok": False, "configured": True, "error": f"{type(e).__name__}: {e}"}
+
+    result["ok"] = bool(result["binance_ping"].get("ok")) and (
+        result["binance_api"].get("ok") or not result["binance_api"].get("configured")
+    )
+    logger.info(f"Binance proxy test: ok={result['ok']} proxy={result['proxy'] or 'direct'} ip={result['egress_ip']}")
+    return result
+
 
 
 # ── Admin: Subscriptions & Payments ────────────────────────────────────────

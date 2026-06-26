@@ -9,7 +9,7 @@
 	let loading = true;
 
 	// Payment Settings
-	let settings = { binance_uid: '', binance_api_key: '', binance_api_secret: '', bep20_address: '', trc20_address: '' };
+	let settings = { binance_uid: '', binance_api_key: '', binance_api_secret: '', bep20_address: '', trc20_address: '', binance_proxy: '' };
 
 	// Subscriptions
 	let subs: any[] = [];
@@ -99,6 +99,17 @@
 
 	$: pendingPayments = payments.filter(p => p.status === 'pending');
 
+	let testing = false;
+	let testResult: any = null;
+	async function testBinanceProxy() {
+		testing = true; testResult = null;
+		try {
+			await gw('/admin/payment-settings', 'PUT', settings);
+			testResult = await gw('/admin/test-binance-proxy', 'POST', {});
+		} catch (e: any) { toast.error(e.message); testResult = { ok: false, error: e.message }; }
+		testing = false;
+	}
+
 	onMount(() => loadAll());
 </script>
 
@@ -158,6 +169,43 @@
 						</div>
 					</div>
 					<p class="text-[11px] text-gray-600">Create API key at Binance → Account → API Management. Enable "Read" permission only. No trading needed.</p>
+					<div class="mt-4 pt-4 border-t border-gray-800">
+						<label class="text-xs text-gray-400 mb-1 block">Outbound Proxy (SOCKS5 / HTTP) — optional</label>
+						<input bind:value={settings.binance_proxy} placeholder="socks5://user:pass@host:port"
+							class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-mono" />
+						<p class="text-[11px] text-gray-600 mt-1">Routes Binance API calls through this proxy (useful where Binance is geo-blocked). Leave empty to connect directly.</p>
+						<div class="flex items-center gap-3 mt-3">
+							<button on:click={testBinanceProxy} disabled={testing}
+								class="px-4 py-2 bg-emerald-700 text-white text-sm rounded-lg hover:bg-emerald-600 transition disabled:opacity-50">
+								{testing ? 'Testing…' : 'Test Binance + Proxy'}
+							</button>
+							{#if testResult}
+								<span class="text-xs font-bold {testResult.ok ? 'text-emerald-400' : 'text-red-400'}">
+									{testResult.ok ? '✓ Working' : '✗ Failed'}
+								</span>
+							{/if}
+						</div>
+						{#if testResult}
+							<div class="mt-3 bg-gray-950/60 rounded-lg border border-gray-800 p-3 text-xs space-y-1 font-mono">
+								<div>Proxy: <span class="text-gray-400">{testResult.proxy || '(none — direct connection)'}</span></div>
+								<div>Egress IP: <span class="text-gray-400">{testResult.egress_ip || testResult.egress_ip_error || '—'}</span></div>
+								<div>Binance ping:
+									<span class={testResult.binance_ping?.ok ? 'text-emerald-400' : 'text-red-400'}>
+										{testResult.binance_ping?.ok ? `OK (${testResult.binance_ping.latency_ms}ms)` : (testResult.binance_ping?.error || 'failed')}
+									</span>
+								</div>
+								<div>Binance API:
+									{#if testResult.binance_api?.configured}
+										<span class={testResult.binance_api?.ok ? 'text-emerald-400' : 'text-red-400'}>
+											{testResult.binance_api?.ok ? 'OK (authenticated)' : ('error: ' + JSON.stringify(testResult.binance_api?.error))}
+										</span>
+									{:else}
+										<span class="text-gray-500">not configured (add API key + secret above to test auth)</span>
+									{/if}
+								</div>
+							</div>
+						{/if}
+					</div>
 				</div>
 			</div>
 
