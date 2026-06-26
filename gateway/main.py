@@ -462,6 +462,29 @@ async def admin_reset_provider(provider_id: str, request: Request):
     return {"status": "reset", "provider": provider_id}
 
 
+@app.get("/admin/providers/{provider_id}/models")
+async def admin_sync_provider_models(provider_id: str, request: Request):
+    """Proxy /models request to a provider (avoids browser CORS issues)."""
+    check_admin(request)
+    if provider_id not in providers:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
+    prov = providers[provider_id]
+    base_url = prov.get("base_url", "").rstrip("/")
+    if not base_url:
+        raise HTTPException(status_code=400, detail="Provider has no base_url")
+    api_keys = prov.get("api_keys", [])
+    headers = {"Content-Type": "application/json"}
+    if api_keys:
+        headers["Authorization"] = f"Bearer {api_keys[0]}"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            res = await client.get(f"{base_url}/models", headers=headers)
+            res.raise_for_status()
+            return res.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch models from {base_url}: {str(e)}")
+
+
 # ── Admin: Model CRUD ──────────────────────────────────────────────────────
 
 @app.get("/admin/models")

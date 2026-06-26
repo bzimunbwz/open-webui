@@ -248,13 +248,7 @@
 			return;
 		}
 		try {
-			const key = provider.api_keys[0] || '';
-			const headers: any = { 'Content-Type': 'application/json' };
-			if (key) headers['Authorization'] = `Bearer ${key}`;
-
-			const res = await fetch(`${provider.base_url.replace(/\/$/, '')}/models`, { headers });
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const data = await res.json();
+			const data = await gw(`/admin/providers/${provider.id}/models`);
 			provider.models = (data.data || data.models || []).map((m: any) => ({
 				id: m.id,
 				name: m.name || m.id,
