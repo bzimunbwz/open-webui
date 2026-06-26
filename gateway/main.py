@@ -1,14 +1,12 @@
 """
 Facade Model Gateway
 ====================
-OpenAI-compatible proxy that presents clean model names to users
-and routes requests to multiple backend providers with automatic fallback.
-
-Admin controls:
-- Toggle any model between FREE and PAID
-- FREE models: available to all users
-- PAID models: require subscription (checked via X-User-Tier header)
-- All tier changes persist across restarts
+OpenAI-compatible proxy with:
+- Clean facade model names for users
+- Multiple API keys per provider with round-robin rotation
+- Automatic fallback across providers
+- Admin CRUD for providers, models, and tiers
+- Persistent storage for all admin changes
 """
 
 import os
@@ -40,97 +38,139 @@ app.add_middleware(
 
 CONFIG_PATH = os.getenv("GATEWAY_CONFIG_PATH", "/app/config.json")
 DATA_DIR = os.getenv("GATEWAY_DATA_DIR", "/app/data")
+PROVIDERS_PATH = os.path.join(DATA_DIR, "providers.json")
+MODELS_PATH = os.path.join(DATA_DIR, "models.json")
 TIERS_PATH = os.path.join(DATA_DIR, "tiers.json")
-MODELS_PATH = os.path.join(DATA_DIR, "models.json")  # admin-modified models persist here
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
 
-# Provider health tracking
-provider_status: dict[str, dict] = {}
-
 # Runtime state
-providers: dict = {}
-facade_models: dict = {}
-model_tiers: dict = {}  # model_id → "free" | "paid" (admin-controlled, persisted)
-
-
-def resolve_env(raw: str) -> str:
-    """Replace ${ENV_VAR} with actual env values."""
-    return re.sub(r'\$\{(\w+)\}', lambda m: os.getenv(m.group(1), ""), raw)
+providers: dict = {}          # id → {name, base_url, api_keys: [...]}
+facade_models: dict = {}      # id → {id, name, tier, backends: [...]}
+model_tiers: dict = {}        # id → "free"|"paid"
+provider_status: dict = {}    # id → {failures, cooldown_until, ...}
+key_index: dict = {}          # provider_id → current key index (for rotation)
 
 
 def ensure_data_dir():
     Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
 
 
-def load_config():
-    global providers, facade_models
-    with open(CONFIG_PATH) as f:
-        cfg = json.loads(resolve_env(f.read()))
+def resolve_env(raw: str) -> str:
+    return re.sub(r'\$\{(\w+)\}', lambda m: os.getenv(m.group(1), ""), raw)
 
-    providers = cfg.get("providers", {})
 
-    # Start with config-defined models
-    facade_models = {}
-    for m in cfg.get("facade_models", []):
-        facade_models[m["id"]] = m
+# ── Load / Save ────────────────────────────────────────────────────────────
 
-    # Overlay admin-modified models (these take precedence)
-    load_models_override()
+def load_all():
+    load_providers()
+    load_models()
+    load_tiers()
 
-    # Init provider health
+
+def load_providers():
+    """Load providers: persistent overrides first, fall back to config.json."""
+    global providers
+    # Try persistent first
+    try:
+        with open(PROVIDERS_PATH) as f:
+            providers = json.load(f)
+        logger.info(f"Loaded {len(providers)} providers from persistent storage")
+    except FileNotFoundError:
+        # Fall back to config.json
+        with open(CONFIG_PATH) as f:
+            cfg = json.loads(resolve_env(f.read()))
+        raw_providers = cfg.get("providers", {})
+        providers = {}
+        for pid, p in raw_providers.items():
+            providers[pid] = {
+                "name": p.get("name", pid),
+                "base_url": p.get("base_url", ""),
+                "api_keys": p.get("api_keys", [p["api_key"]] if p.get("api_key") else []),
+            }
+        logger.info(f"Loaded {len(providers)} providers from config.json")
+
+    # Init health tracking
     for pid in providers:
         if pid not in provider_status:
             provider_status[pid] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        if pid not in key_index:
+            key_index[pid] = 0
 
-    logger.info(f"Loaded {len(facade_models)} facade models, {len(providers)} providers")
+
+def save_providers():
+    ensure_data_dir()
+    with open(PROVIDERS_PATH, "w") as f:
+        json.dump(providers, f, indent=2)
 
 
-def load_models_override():
-    """Load admin-created/edited models from persistent storage."""
+def load_models():
     global facade_models
+    # Try persistent first
     try:
         with open(MODELS_PATH) as f:
-            overrides = json.load(f)
-        for m in overrides:
-            facade_models[m["id"]] = m
-        logger.info(f"Loaded {len(overrides)} model overrides from admin")
+            models_list = json.load(f)
+        facade_models = {m["id"]: m for m in models_list}
+        logger.info(f"Loaded {len(facade_models)} models from persistent storage")
     except FileNotFoundError:
-        pass
+        with open(CONFIG_PATH) as f:
+            cfg = json.loads(resolve_env(f.read()))
+        facade_models = {}
+        for m in cfg.get("facade_models", []):
+            facade_models[m["id"]] = m
+        logger.info(f"Loaded {len(facade_models)} models from config.json")
 
 
-def save_models_override():
-    """Save all current facade models to persistent storage."""
+def save_models():
     ensure_data_dir()
-    models_list = list(facade_models.values())
     with open(MODELS_PATH, "w") as f:
-        json.dump(models_list, f, indent=2)
+        json.dump(list(facade_models.values()), f, indent=2)
 
 
 def load_tiers():
-    """Load admin-set tiers from persistent storage."""
     global model_tiers
     try:
         with open(TIERS_PATH) as f:
             model_tiers = json.load(f)
-        logger.info(f"Loaded {len(model_tiers)} tier overrides")
     except FileNotFoundError:
         model_tiers = {}
-        logger.info("No tier overrides found, using config defaults")
 
 
 def save_tiers():
-    """Persist tier overrides to disk."""
     ensure_data_dir()
     with open(TIERS_PATH, "w") as f:
         json.dump(model_tiers, f, indent=2)
 
 
 def get_model_tier(model_id: str) -> str:
-    """Get effective tier: admin override > config default."""
     if model_id in model_tiers:
         return model_tiers[model_id]
-    facade = facade_models.get(model_id, {})
-    return facade.get("tier", "paid")
+    return facade_models.get(model_id, {}).get("tier", "paid")
+
+
+# ── API Key Rotation ───────────────────────────────────────────────────────
+
+def get_next_key(provider_id: str) -> str:
+    """Round-robin through provider's API keys."""
+    prov = providers.get(provider_id, {})
+    keys = prov.get("api_keys", [])
+    if not keys:
+        return ""
+
+    idx = key_index.get(provider_id, 0) % len(keys)
+    key_index[provider_id] = (idx + 1) % len(keys)
+    return keys[idx]
+
+
+def mark_key_failed(provider_id: str, failed_key: str):
+    """On key failure, rotate to next key. If all keys exhausted, mark provider failed."""
+    prov = providers.get(provider_id, {})
+    keys = prov.get("api_keys", [])
+    if len(keys) <= 1:
+        mark_failure(provider_id)
+        return
+
+    # Just rotate — the next attempt will use the next key
+    logger.info(f"Rotating key for {provider_id} (key ending ...{failed_key[-4:] if len(failed_key) >= 4 else '****'} failed)")
 
 
 # ── Provider Health ─────────────────────────────────────────────────────────
@@ -166,42 +206,61 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
     if not prov or not prov.get("base_url") or not is_available(pid):
         return None
 
-    url = prov["base_url"].rstrip("/") + "/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    if prov.get("api_key"):
-        headers["Authorization"] = f"Bearer {prov['api_key']}"
+    keys = prov.get("api_keys", [])
+    attempts = max(len(keys), 1)  # Try each key at least once
 
-    req_body = {**body, "model": backend_model}
+    for attempt in range(attempts):
+        api_key = get_next_key(pid)
+        url = prov["base_url"].rstrip("/") + "/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            if stream:
-                req = client.build_request("POST", url, json=req_body, headers=headers)
-                resp = await client.send(req, stream=True)
-                if resp.status_code in RETRYABLE or resp.status_code >= 400:
-                    await resp.aclose()
-                    mark_failure(pid)
-                    return None
-                mark_success(pid)
-                return resp
-            else:
-                resp = await client.post(url, json=req_body, headers=headers)
-                if resp.status_code in RETRYABLE or resp.status_code >= 400:
-                    mark_failure(pid)
-                    return None
-                mark_success(pid)
-                return resp
-    except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
-        mark_failure(pid)
-        logger.warning(f"Provider {pid} error: {e}")
-        return None
-    except Exception as e:
-        mark_failure(pid)
-        logger.error(f"Provider {pid} unexpected: {e}")
-        return None
+        req_body = {**body, "model": backend_model}
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                if stream:
+                    req = client.build_request("POST", url, json=req_body, headers=headers)
+                    resp = await client.send(req, stream=True)
+                    if resp.status_code == 429:
+                        await resp.aclose()
+                        mark_key_failed(pid, api_key)
+                        logger.info(f"Key rate-limited on {pid}, trying next key (attempt {attempt + 1}/{attempts})")
+                        continue
+                    if resp.status_code in RETRYABLE or resp.status_code >= 400:
+                        await resp.aclose()
+                        mark_failure(pid)
+                        return None
+                    mark_success(pid)
+                    return resp
+                else:
+                    resp = await client.post(url, json=req_body, headers=headers)
+                    if resp.status_code == 429:
+                        mark_key_failed(pid, api_key)
+                        logger.info(f"Key rate-limited on {pid}, trying next key (attempt {attempt + 1}/{attempts})")
+                        continue
+                    if resp.status_code in RETRYABLE or resp.status_code >= 400:
+                        mark_failure(pid)
+                        return None
+                    mark_success(pid)
+                    return resp
+
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
+            mark_failure(pid)
+            logger.warning(f"Provider {pid} error: {e}")
+            return None
+        except Exception as e:
+            mark_failure(pid)
+            logger.error(f"Provider {pid} unexpected: {e}")
+            return None
+
+    # All keys exhausted
+    mark_failure(pid)
+    return None
 
 
-# ── Auth Helpers ────────────────────────────────────────────────────────────
+# ── Auth ────────────────────────────────────────────────────────────────────
 
 def check_admin(request: Request):
     auth = request.headers.get("Authorization", "")
@@ -210,20 +269,14 @@ def check_admin(request: Request):
 
 
 def get_user_tier(request: Request) -> str:
-    """
-    Determine user's subscription tier from request headers.
-    Open WebUI passes user info - we check X-User-Tier header.
-    Default: 'free' (unsubscribed users).
-    """
     return request.headers.get("X-User-Tier", "free").lower()
 
 
-# ── Routes ──────────────────────────────────────────────────────────────────
+# ── Public Routes ───────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def startup():
-    load_config()
-    load_tiers()
+    load_all()
 
 
 @app.get("/health")
@@ -233,7 +286,6 @@ async def health():
 
 @app.get("/v1/models")
 async def list_models(request: Request):
-    """Return all facade models with their current tier badge."""
     data = []
     for mid, mcfg in facade_models.items():
         tier = get_model_tier(mid)
@@ -263,11 +315,10 @@ async def chat_completions(request: Request):
     if not facade:
         raise HTTPException(status_code=404, detail=f"Model '{requested_model}' not found")
 
-    # ── Access control ──
     tier = get_model_tier(requested_model)
     user_tier = get_user_tier(request)
 
-    if tier == "paid" and user_tier != "paid" and user_tier != "admin":
+    if tier == "paid" and user_tier not in ("paid", "admin"):
         raise HTTPException(
             status_code=403,
             detail=json.dumps({
@@ -278,7 +329,6 @@ async def chat_completions(request: Request):
             })
         )
 
-    # ── Fallback routing ──
     for backend in facade.get("backends", []):
         pid = backend["provider"]
         bmodel = backend["model"]
@@ -310,11 +360,112 @@ async def chat_completions(request: Request):
     raise HTTPException(status_code=503, detail=f"All providers failed for '{requested_model}'")
 
 
-# ── Admin API ───────────────────────────────────────────────────────────────
+# ── Admin: Provider CRUD ────────────────────────────────────────────────────
+
+@app.get("/admin/config")
+async def admin_get_config(request: Request):
+    """Get full config (providers + models)."""
+    check_admin(request)
+    return {
+        "providers": providers,
+        "models": list(facade_models.values()),
+    }
+
+
+@app.get("/admin/providers")
+async def admin_list_providers(request: Request):
+    """View provider health status."""
+    check_admin(request)
+    status = {}
+    for pid, prov in providers.items():
+        ps = provider_status.get(pid, {})
+        keys = prov.get("api_keys", [])
+        status[pid] = {
+            "name": prov.get("name", pid),
+            "base_url": prov.get("base_url", ""),
+            "key_count": len(keys),
+            "current_key_index": key_index.get(pid, 0),
+            "failures": ps.get("failures", 0),
+            "in_cooldown": ps.get("cooldown_until", 0) > time.time(),
+            "cooldown_remaining_s": max(0, round(ps.get("cooldown_until", 0) - time.time())),
+        }
+    return {"providers": status}
+
+
+@app.post("/admin/providers")
+async def admin_create_provider(request: Request):
+    """Create a new provider. Body: {id, name, base_url, api_keys: [...]}"""
+    check_admin(request)
+    body = await request.json()
+    pid = body.get("id", "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="id is required")
+    if pid in providers:
+        raise HTTPException(status_code=409, detail=f"Provider '{pid}' already exists")
+
+    providers[pid] = {
+        "name": body.get("name", pid),
+        "base_url": body.get("base_url", ""),
+        "api_keys": body.get("api_keys", []),
+    }
+    provider_status[pid] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+    key_index[pid] = 0
+    save_providers()
+    logger.info(f"Admin created provider: {pid}")
+    return {"status": "created", "provider": pid}
+
+
+@app.put("/admin/providers/{provider_id}")
+async def admin_update_provider(provider_id: str, request: Request):
+    """Update provider. Body: any subset of {name, base_url, api_keys}"""
+    check_admin(request)
+    if provider_id not in providers:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
+
+    body = await request.json()
+    prov = providers[provider_id]
+    if "name" in body:
+        prov["name"] = body["name"]
+    if "base_url" in body:
+        prov["base_url"] = body["base_url"]
+    if "api_keys" in body:
+        prov["api_keys"] = [k for k in body["api_keys"] if k.strip()]
+        key_index[provider_id] = 0  # Reset rotation
+
+    save_providers()
+    logger.info(f"Admin updated provider: {provider_id} ({len(prov.get('api_keys', []))} keys)")
+    return {"status": "updated", "provider": provider_id, "key_count": len(prov.get("api_keys", []))}
+
+
+@app.delete("/admin/providers/{provider_id}")
+async def admin_delete_provider(provider_id: str, request: Request):
+    """Delete a provider."""
+    check_admin(request)
+    if provider_id not in providers:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
+
+    del providers[provider_id]
+    provider_status.pop(provider_id, None)
+    key_index.pop(provider_id, None)
+    save_providers()
+    logger.info(f"Admin deleted provider: {provider_id}")
+    return {"status": "deleted", "provider": provider_id}
+
+
+@app.post("/admin/providers/{provider_id}/reset")
+async def admin_reset_provider(provider_id: str, request: Request):
+    check_admin(request)
+    if provider_id not in providers:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
+    mark_success(provider_id)
+    key_index[provider_id] = 0
+    return {"status": "reset", "provider": provider_id}
+
+
+# ── Admin: Model CRUD ──────────────────────────────────────────────────────
 
 @app.get("/admin/models")
 async def admin_list_models(request: Request):
-    """List all models with their current tier and backend providers."""
     check_admin(request)
     result = []
     for mid, mcfg in facade_models.items():
@@ -327,9 +478,72 @@ async def admin_list_models(request: Request):
     return {"models": result}
 
 
+@app.post("/admin/models")
+async def admin_create_model(request: Request):
+    check_admin(request)
+    body = await request.json()
+    model_id = body.get("id", "").strip()
+    name = body.get("name", "").strip()
+    if not model_id or not name:
+        raise HTTPException(status_code=400, detail="id and name are required")
+    if model_id in facade_models:
+        raise HTTPException(status_code=409, detail=f"Model '{model_id}' already exists")
+    if not body.get("backends"):
+        raise HTTPException(status_code=400, detail="At least one backend is required")
+
+    tier = body.get("tier", "paid")
+    model = {"id": model_id, "name": name, "tier": tier, "backends": body["backends"]}
+    facade_models[model_id] = model
+    model_tiers[model_id] = tier
+    save_models()
+    save_tiers()
+    logger.info(f"Admin created model: {name} ({model_id})")
+    return {"status": "created", "model": model}
+
+
+@app.put("/admin/models/{model_id}")
+async def admin_edit_model(model_id: str, request: Request):
+    check_admin(request)
+    if model_id not in facade_models:
+        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
+
+    body = await request.json()
+    model = facade_models[model_id]
+
+    if "name" in body:
+        model["name"] = body["name"].strip()
+    if "tier" in body and body["tier"] in ("free", "paid"):
+        model["tier"] = body["tier"]
+        model_tiers[model_id] = body["tier"]
+    if "backends" in body:
+        if not body["backends"]:
+            raise HTTPException(status_code=400, detail="At least one backend is required")
+        model["backends"] = body["backends"]
+
+    facade_models[model_id] = model
+    save_models()
+    save_tiers()
+    logger.info(f"Admin updated model: {model['name']} ({model_id})")
+    return {"status": "updated", "model": model}
+
+
+@app.delete("/admin/models/{model_id}")
+async def admin_delete_model(model_id: str, request: Request):
+    check_admin(request)
+    if model_id not in facade_models:
+        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
+
+    name = facade_models[model_id]["name"]
+    del facade_models[model_id]
+    model_tiers.pop(model_id, None)
+    save_models()
+    save_tiers()
+    logger.info(f"Admin deleted model: {name} ({model_id})")
+    return {"status": "deleted", "model": model_id, "name": name}
+
+
 @app.post("/admin/models/{model_id}/tier")
 async def admin_set_tier(model_id: str, request: Request):
-    """Toggle a model's tier. Body: {"tier": "free"} or {"tier": "paid"}"""
     check_admin(request)
     if model_id not in facade_models:
         raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
@@ -340,155 +554,18 @@ async def admin_set_tier(model_id: str, request: Request):
         raise HTTPException(status_code=400, detail="tier must be 'free' or 'paid'")
 
     model_tiers[model_id] = new_tier
+    facade_models[model_id]["tier"] = new_tier
     save_tiers()
+    save_models()
 
     name = facade_models[model_id]["name"]
-    logger.info(f"Admin set {name} ({model_id}) → {new_tier}")
     return {"model": model_id, "name": name, "tier": new_tier}
-
-
-@app.post("/admin/models/bulk-tier")
-async def admin_bulk_tier(request: Request):
-    """Set tier for multiple models at once. Body: {"models": {"model-id": "free", ...}}"""
-    check_admin(request)
-    body = await request.json()
-    updates = body.get("models", {})
-    results = []
-
-    for mid, tier in updates.items():
-        if mid not in facade_models:
-            continue
-        if tier not in ("free", "paid"):
-            continue
-        model_tiers[mid] = tier
-        results.append({"model": mid, "name": facade_models[mid]["name"], "tier": tier})
-
-    save_tiers()
-    return {"updated": results}
-
-
-@app.post("/admin/models")
-async def admin_create_model(request: Request):
-    """
-    Create a new facade model.
-    Body: {
-        "id": "gpt-4.1",
-        "name": "GPT 4.1",
-        "tier": "paid",
-        "backends": [
-            {"provider": "freemodel", "model": "gpt-4.1"},
-            {"provider": "llm7", "model": "gpt-4.1"}
-        ]
-    }
-    """
-    check_admin(request)
-    body = await request.json()
-
-    model_id = body.get("id", "").strip()
-    name = body.get("name", "").strip()
-    tier = body.get("tier", "paid").lower()
-    backends = body.get("backends", [])
-
-    if not model_id or not name:
-        raise HTTPException(status_code=400, detail="id and name are required")
-    if model_id in facade_models:
-        raise HTTPException(status_code=409, detail=f"Model '{model_id}' already exists. Use PUT to edit.")
-    if not backends:
-        raise HTTPException(status_code=400, detail="At least one backend is required")
-
-    model = {"id": model_id, "name": name, "tier": tier, "backends": backends}
-    facade_models[model_id] = model
-    model_tiers[model_id] = tier
-    save_models_override()
-    save_tiers()
-
-    logger.info(f"Admin created model: {name} ({model_id})")
-    return {"status": "created", "model": model}
-
-
-@app.put("/admin/models/{model_id}")
-async def admin_edit_model(model_id: str, request: Request):
-    """
-    Edit an existing facade model.
-    Body: any subset of {name, tier, backends}
-    """
-    check_admin(request)
-    if model_id not in facade_models:
-        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
-
-    body = await request.json()
-    model = facade_models[model_id]
-
-    if "name" in body:
-        model["name"] = body["name"].strip()
-    if "tier" in body:
-        tier = body["tier"].lower()
-        if tier in ("free", "paid"):
-            model["tier"] = tier
-            model_tiers[model_id] = tier
-    if "backends" in body:
-        if not body["backends"]:
-            raise HTTPException(status_code=400, detail="At least one backend is required")
-        model["backends"] = body["backends"]
-
-    facade_models[model_id] = model
-    save_models_override()
-    save_tiers()
-
-    logger.info(f"Admin updated model: {model['name']} ({model_id})")
-    return {"status": "updated", "model": model}
-
-
-@app.delete("/admin/models/{model_id}")
-async def admin_delete_model(model_id: str, request: Request):
-    """Delete a facade model."""
-    check_admin(request)
-    if model_id not in facade_models:
-        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
-
-    name = facade_models[model_id]["name"]
-    del facade_models[model_id]
-    model_tiers.pop(model_id, None)
-    save_models_override()
-    save_tiers()
-
-    logger.info(f"Admin deleted model: {name} ({model_id})")
-    return {"status": "deleted", "model": model_id, "name": name}
-
-
-@app.get("/admin/providers")
-async def admin_providers(request: Request):
-    """View provider health status."""
-    check_admin(request)
-    status = {}
-    for pid, prov in providers.items():
-        ps = provider_status.get(pid, {})
-        status[pid] = {
-            "name": prov["name"],
-            "base_url": prov["base_url"][:50] + "..." if len(prov.get("base_url", "")) > 50 else prov.get("base_url", ""),
-            "failures": ps.get("failures", 0),
-            "in_cooldown": ps.get("cooldown_until", 0) > time.time(),
-            "cooldown_remaining_s": max(0, round(ps.get("cooldown_until", 0) - time.time())),
-        }
-    return {"providers": status}
-
-
-@app.post("/admin/providers/{provider_id}/reset")
-async def admin_reset_provider(provider_id: str, request: Request):
-    """Reset a provider's failure counter."""
-    check_admin(request)
-    if provider_id not in providers:
-        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
-    mark_success(provider_id)
-    return {"status": "reset", "provider": provider_id}
 
 
 @app.post("/admin/reload")
 async def admin_reload(request: Request):
-    """Reload config from disk."""
     check_admin(request)
-    load_config()
-    load_tiers()
+    load_all()
     return {"status": "reloaded", "models": len(facade_models), "providers": len(providers)}
 
 
