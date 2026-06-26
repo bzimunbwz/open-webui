@@ -66,27 +66,6 @@
         { "provider": "zai", "model": "gpt-codex-5.5" },
         { "provider": "freellmapi", "model": "gpt-codex-5.5" }
       ]
-    },
-    {
-      "id": "gpt-4o",
-      "name": "GPT-4o",
-      "tier": "paid",
-      "backends": [
-        { "provider": "freemodel", "model": "gpt-4o" },
-        { "provider": "llm7", "model": "gpt-4o" },
-        { "provider": "freellmapi", "model": "gpt-4o" },
-        { "provider": "zai", "model": "gpt-4o" }
-      ]
-    },
-    {
-      "id": "gemini-2.5-pro",
-      "name": "Gemini 2.5 Pro",
-      "tier": "paid",
-      "backends": [
-        { "provider": "freemodel", "model": "gemini-2.5-pro" },
-        { "provider": "llm7", "model": "gemini-2.5-pro" },
-        { "provider": "freellmapi", "model": "gemini-2.5-pro" }
-      ]
     }
   ]
 }
