@@ -117,7 +117,7 @@
 		<div class="mx-6 mb-4 bg-gray-900 rounded-xl p-5 border border-gray-800">
 			<h3 class="text-sm font-semibold mb-3">{editingPkg ? `Edit: ${form.name}` : 'New Package'}</h3>
 
-			<div class="grid grid-cols-4 gap-3 mb-3">
+			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
 				<div>
 					<label class="text-xs text-gray-400 mb-1 block">Package ID</label>
 					<input bind:value={form.id} placeholder="e.g. pro" disabled={!!editingPkg}
@@ -149,7 +149,7 @@
 					class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
 			</div>
 
-			<div class="grid grid-cols-2 gap-3 mb-3">
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
 				<div>
 					<label class="text-xs text-gray-400 mb-1 block">Monthly Price (USDT)</label>
 					<input type="number" step="0.01" bind:value={form.price_monthly}

@@ -104,23 +104,23 @@
 
 <div class="flex flex-col h-full overflow-y-auto">
 	<div class="px-6 pt-5 pb-3">
-		<div class="flex items-center justify-between mb-1">
+		<div class="flex flex-wrap items-center justify-between mb-1 gap-2">
 			<h1 class="text-2xl font-bold">Payments & Subscriptions</h1>
 			<button on:click={loadAll} class="text-xs px-3 py-1.5 bg-gray-800 rounded-lg hover:bg-gray-700 transition">Refresh</button>
 		</div>
 
 		<!-- Tabs -->
-		<div class="flex gap-1 mt-3 border-b border-gray-800">
+		<div class="flex gap-1 mt-3 border-b border-gray-800 overflow-x-auto scrollbar-none">
 			<button
-				class="px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'settings' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
+				class="whitespace-nowrap flex-shrink-0 px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'settings' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
 				on:click={() => (activeTab = 'settings')}
 			>Payment Settings</button>
 			<button
-				class="px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'subscriptions' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
+				class="whitespace-nowrap flex-shrink-0 px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'subscriptions' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
 				on:click={() => (activeTab = 'subscriptions')}
 			>Subscriptions ({subs.length})</button>
 			<button
-				class="px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'history' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
+				class="whitespace-nowrap flex-shrink-0 px-4 py-2 text-sm font-medium transition border-b-2 {activeTab === 'history' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-300'}"
 				on:click={() => (activeTab = 'history')}
 			>Payment History {pendingPayments.length ? `(${pendingPayments.length} pending)` : ''}</button>
 		</div>
@@ -145,7 +145,7 @@
 						<input bind:value={settings.binance_uid} placeholder="Your Binance personal UID (e.g. 123456789)"
 							class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-mono" />
 					</div>
-					<div class="grid grid-cols-2 gap-3">
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 						<div>
 							<label class="text-xs text-gray-400 mb-1 block">Binance API Key</label>
 							<input type="password" bind:value={settings.binance_api_key} placeholder="For auto-verification of incoming payments"
@@ -200,7 +200,7 @@
 			{#if showGrant}
 				<div class="mb-4 bg-gray-900 rounded-xl p-5 border border-gray-800">
 					<h3 class="text-sm font-semibold mb-3">Grant Subscription (no payment required)</h3>
-					<div class="grid grid-cols-3 gap-3 mb-3">
+					<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
 						<div>
 							<label class="text-xs text-gray-400 mb-1 block">User Email</label>
 							<input bind:value={grantForm.email} placeholder="user@example.com"
@@ -244,15 +244,15 @@
 						{#each subs as sub}
 							{@const expired = sub.expires_at && new Date(sub.expires_at) < new Date()}
 							<tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition {expired ? 'opacity-50' : ''}">
-								<td class="px-4 py-3 font-mono text-xs">{sub.email}</td>
-								<td class="px-4 py-3">{sub.package_name}</td>
-								<td class="px-4 py-3">
+								<td data-label="Email" class="px-4 py-3 font-mono text-xs">{sub.email}</td>
+								<td data-label="Package" class="px-4 py-3">{sub.package_name}</td>
+								<td data-label="Tier" class="px-4 py-3">
 									<span class="text-[11px] font-bold px-2 py-0.5 rounded-full {sub.tier === 'enterprise' ? 'bg-purple-500/20 text-purple-400' : sub.tier === 'pro' ? 'bg-orange-500/20 text-orange-400' : 'bg-green-500/20 text-green-400'} uppercase">{sub.tier}</span>
 								</td>
-								<td class="px-4 py-3 text-xs text-gray-400">{sub.payment_method || '—'}</td>
-								<td class="px-4 py-3 text-xs text-gray-500">{sub.started_at ? sub.started_at.slice(0, 10) : '—'}</td>
-								<td class="px-4 py-3 text-xs {expired ? 'text-red-400' : 'text-gray-500'}">{sub.expires_at ? sub.expires_at.slice(0, 10) : '—'} {expired ? '(expired)' : ''}</td>
-								<td class="px-4 py-3 text-right">
+								<td data-label="Method" class="px-4 py-3 text-xs text-gray-400">{sub.payment_method || '—'}</td>
+								<td data-label="Started" class="px-4 py-3 text-xs text-gray-500">{sub.started_at ? sub.started_at.slice(0, 10) : '—'}</td>
+								<td data-label="Expires" class="px-4 py-3 text-xs {expired ? 'text-red-400' : 'text-gray-500'}">{sub.expires_at ? sub.expires_at.slice(0, 10) : '—'} {expired ? '(expired)' : ''}</td>
+								<td data-label="Actions" class="px-4 py-3 text-right">
 									<button on:click={() => revokeSub(sub.email)} class="text-red-500 hover:text-red-400 text-xs">Revoke</button>
 								</td>
 							</tr>
@@ -291,16 +291,16 @@
 					<tbody>
 						{#each payments.slice().reverse() as payment}
 							<tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
-								<td class="px-4 py-3 font-mono text-xs">{payment.user_email}</td>
-								<td class="px-4 py-3">{payment.package_id}</td>
-								<td class="px-4 py-3">{payment.amount > 0 ? `$${payment.amount}` : 'Free'}</td>
-								<td class="px-4 py-3 text-xs text-gray-400">{payment.method}</td>
-								<td class="px-4 py-3 font-mono text-[11px] text-gray-500 max-w-[120px] truncate" title={payment.tx_hash || payment.coupon_code || ''}>{payment.tx_hash || payment.coupon_code || '—'}</td>
-								<td class="px-4 py-3">
+								<td data-label="User" class="px-4 py-3 font-mono text-xs">{payment.user_email}</td>
+								<td data-label="Package" class="px-4 py-3">{payment.package_id}</td>
+								<td data-label="Amount" class="px-4 py-3">{payment.amount > 0 ? `$${payment.amount}` : 'Free'}</td>
+								<td data-label="Method" class="px-4 py-3 text-xs text-gray-400">{payment.method}</td>
+								<td data-label="TX Hash" class="px-4 py-3 font-mono text-[11px] text-gray-500 max-w-[120px] truncate" title={payment.tx_hash || payment.coupon_code || ''}>{payment.tx_hash || payment.coupon_code || '—'}</td>
+								<td data-label="Status" class="px-4 py-3">
 									<span class="text-[11px] font-bold px-2 py-0.5 rounded-full {payment.status === 'completed' ? 'bg-green-500/20 text-green-400' : payment.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'} uppercase">{payment.status}</span>
 								</td>
-								<td class="px-4 py-3 text-xs text-gray-500">{payment.created_at ? payment.created_at.slice(0, 10) : '—'}</td>
-								<td class="px-4 py-3 text-right">
+								<td data-label="Date" class="px-4 py-3 text-xs text-gray-500">{payment.created_at ? payment.created_at.slice(0, 10) : '—'}</td>
+								<td data-label="Actions" class="px-4 py-3 text-right">
 									{#if payment.status === 'pending'}
 										<button on:click={() => approvePayment(payment.id)} class="text-xs px-2 py-1 bg-green-700 text-white rounded hover:bg-green-600 transition mr-1">Approve</button>
 										<button on:click={() => rejectPayment(payment.id)} class="text-xs px-2 py-1 bg-red-700 text-white rounded hover:bg-red-600 transition">Reject</button>

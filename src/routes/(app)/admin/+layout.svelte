@@ -77,6 +77,7 @@
 				<div class="flex w-full">
 					<div
 						class="flex gap-0.5 scrollbar-none overflow-x-auto w-fit text-center text-sm font-medium bg-transparent pb-0"
+						style="-webkit-overflow-scrolling: touch;"
 					>
 						{#each navItems as item}
 							<a

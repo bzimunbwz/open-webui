@@ -143,7 +143,7 @@
 	{#if showForm}
 		<div class="mx-6 mb-4 bg-gray-900 rounded-xl p-5 border border-gray-800">
 			<h3 class="text-sm font-semibold mb-3">Create Coupons</h3>
-			<div class="grid grid-cols-4 gap-3 mb-3">
+			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
 				<div>
 					<label class="text-xs text-gray-400 mb-1 block">Quantity</label>
 					<input type="number" min="1" max="1000" bind:value={form.count}
@@ -165,7 +165,7 @@
 						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
 				</div>
 			</div>
-			<div class="grid grid-cols-4 gap-3 mb-3">
+			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
 				<div>
 					<label class="text-xs text-gray-400 mb-1 block">Package</label>
 					<select bind:value={form.package_id} class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
@@ -215,8 +215,8 @@
 	{/if}
 
 	<!-- Filters -->
-	<div class="px-6 mb-4 flex gap-3 items-center">
-		<div class="relative flex-1 max-w-xs">
+	<div class="px-6 mb-4 flex flex-wrap gap-3 items-center">
+		<div class="relative flex-1 max-w-full sm:max-w-xs">
 			<input bind:value={searchQuery} placeholder="Search coupons..."
 				class="w-full rounded-lg border border-gray-700 bg-gray-800 pl-8 pr-3 py-2 text-sm" />
 			<svg class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -254,27 +254,27 @@
 				<tbody>
 					{#each filteredCoupons as coupon (coupon.code)}
 						<tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
-							<td class="px-4 py-3">
+							<td data-label="Code" class="px-4 py-3">
 								<button on:click={() => copySingle(coupon.code)} class="font-mono text-orange-400 hover:text-orange-300 cursor-pointer" title="Click to copy">
 									{coupon.code}
 								</button>
 							</td>
-							<td class="px-4 py-3 text-gray-500">{coupon.group || '—'}</td>
-							<td class="px-4 py-3">{coupon.package_id || 'Any'}</td>
-							<td class="px-4 py-3 text-gray-400">{coupon.duration} ({coupon.months}mo)</td>
-							<td class="px-4 py-3">
+							<td data-label="Group" class="px-4 py-3 text-gray-500">{coupon.group || '—'}</td>
+							<td data-label="Package" class="px-4 py-3">{coupon.package_id || 'Any'}</td>
+							<td data-label="Duration" class="px-4 py-3 text-gray-400">{coupon.duration} ({coupon.months}mo)</td>
+							<td data-label="Used" class="px-4 py-3">
 								<span class="{(coupon.used_by || []).length >= (coupon.max_uses || 1) ? 'text-red-400' : 'text-gray-400'}">
 									{(coupon.used_by || []).length}/{coupon.max_uses || 1}
 								</span>
 							</td>
-							<td class="px-4 py-3">
+							<td data-label="Status" class="px-4 py-3">
 								<button on:click={() => toggleCoupon(coupon)}
 									class="text-[11px] font-bold px-2 py-0.5 rounded-full cursor-pointer {coupon.active ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
 									{coupon.active ? 'ACTIVE' : 'INACTIVE'}
 								</button>
 							</td>
-							<td class="px-4 py-3 text-xs text-gray-500">{coupon.expires_at ? coupon.expires_at.slice(0, 10) : 'Never'}</td>
-							<td class="px-4 py-3 text-right">
+							<td data-label="Expires" class="px-4 py-3 text-xs text-gray-500">{coupon.expires_at ? coupon.expires_at.slice(0, 10) : 'Never'}</td>
+							<td data-label="Actions" class="px-4 py-3 text-right">
 								<button on:click={() => deleteCoupon(coupon.code)} class="text-red-500 hover:text-red-400 text-xs">Delete</button>
 							</td>
 						</tr>
