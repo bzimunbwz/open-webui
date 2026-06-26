@@ -5,9 +5,17 @@
 
 	const i18n = getContext('i18n');
 
+	// ── Safe localStorage wrapper (Firefox blocks it in some modes) ───
+	function lsGet(key: string): string {
+		try { return localStorage.getItem(key) || ''; } catch { return ''; }
+	}
+	function lsSet(key: string, val: string) {
+		try { localStorage.setItem(key, val); } catch { /* ignored */ }
+	}
+
 	// ── Gateway connection ─────────────────────────────────────────────
-	let GATEWAY_URL = localStorage.getItem('gateway_url') || '';
-	let GATEWAY_ADMIN_KEY = localStorage.getItem('gateway_admin_key') || '';
+	let GATEWAY_URL = lsGet('gateway_url') || 'https://webapp-2nd-service-production.up.railway.app';
+	let GATEWAY_ADMIN_KEY = lsGet('gateway_admin_key') || 'sk-gateway-admin';
 	let showGatewayConfig = false;
 	let connected = false;
 
@@ -262,8 +270,8 @@
 			url = 'https://' + url;
 		}
 		GATEWAY_URL = url.replace(/\/+$/, '');
-		localStorage.setItem('gateway_url', GATEWAY_URL);
-		localStorage.setItem('gateway_admin_key', GATEWAY_ADMIN_KEY);
+		lsSet('gateway_url', GATEWAY_URL);
+		lsSet('gateway_admin_key', GATEWAY_ADMIN_KEY);
 		showGatewayConfig = false;
 		loadAll();
 	}
