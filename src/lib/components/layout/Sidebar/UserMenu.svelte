@@ -358,6 +358,28 @@
 				</div>
 			{/if}
 
+			<!-- Subscription link -->
+			<div class="flex items-center w-full">
+				<a
+					href="/subscription"
+					draggable="false"
+					class="flex flex-1 rounded-xl py-1.5 px-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer select-none"
+					on:click={async (e) => {
+						if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+						e.preventDefault();
+						show = false;
+						goto('/subscription');
+					}}
+				>
+					<div class="self-center mr-3">
+						<svg xmlns="http://www.w3.org/2000/svg" class="size-5" viewBox="0 0 20 20" fill="currentColor">
+							<path fill-rule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm2.5 3a.5.5 0 000 1h5a.5.5 0 000-1h-5zm0 3a.5.5 0 000 1h5a.5.5 0 000-1h-5zm0 3a.5.5 0 000 1h3a.5.5 0 000-1h-3z" clip-rule="evenodd" />
+						</svg>
+					</div>
+					<div class="self-center truncate">{$i18n.t('Subscription')}</div>
+				</a>
+			</div>
+
 			{#if ($config?.features?.enable_notes ?? false) && ($user?.role === 'admin' || ($user?.permissions?.features?.notes ?? true))}
 				<div class="flex items-center w-full">
 					<a

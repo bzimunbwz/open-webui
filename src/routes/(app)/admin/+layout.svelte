@@ -103,6 +103,30 @@
 
 						<a
 							draggable="false"
+							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/packages')
+								? ''
+								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
+							href="/admin/packages">{$i18n.t('Packages')}</a
+						>
+
+						<a
+							draggable="false"
+							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/coupons')
+								? ''
+								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
+							href="/admin/coupons">{$i18n.t('Coupons')}</a
+						>
+
+						<a
+							draggable="false"
+							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/payments')
+								? ''
+								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
+							href="/admin/payments">{$i18n.t('Payments')}</a
+						>
+
+						<a
+							draggable="false"
 							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/settings')
 								? ''
 								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
