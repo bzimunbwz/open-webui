@@ -386,8 +386,14 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
         req_body = {**body, "model": backend_model}
 
         try:
+            # Use generous timeouts for streaming: no read timeout (SSE tokens arrive slowly)
+            if stream:
+                client_timeout = httpx.Timeout(connect=15.0, read=None, write=15.0, pool=15.0)
+            else:
+                client_timeout = httpx.Timeout(timeout)
+
             # Don't use 'async with' — we need the client alive for streaming
-            client = httpx.AsyncClient(timeout=timeout)
+            client = httpx.AsyncClient(timeout=client_timeout)
             try:
                 if stream:
                     req = client.build_request("POST", url, json=req_body, headers=headers)
@@ -403,32 +409,10 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                         mark_failure(pid)
                         return None
 
-                    # Read first chunk to verify the response has actual content
-                    first_chunk = b""
-                    async for chunk in resp.aiter_bytes(4096):
-                        first_chunk = chunk
-                        break
-
-                    if not first_chunk or len(first_chunk.strip()) == 0:
-                        logger.warning(f"Provider {pid}/{backend_model} returned empty stream")
-                        await resp.aclose()
-                        await client.aclose()
-                        return None
-
-                    # Check if the first chunk contains an error
-                    try:
-                        chunk_text = first_chunk.decode("utf-8", errors="ignore")
-                        if '"error"' in chunk_text and '"message"' in chunk_text and "data:" not in chunk_text:
-                            logger.warning(f"Provider {pid}/{backend_model} returned error: {chunk_text[:200]}")
-                            await resp.aclose()
-                            await client.aclose()
-                            return None
-                    except Exception:
-                        pass
-
                     mark_success(pid)
-                    # Return client + resp + first_chunk so caller can stream properly
-                    return {"client": client, "resp": resp, "first_chunk": first_chunk, "stream": True}
+                    # Return client + resp for streaming — no first-chunk validation
+                    # (validating requires consuming part of the stream which can break SSE)
+                    return {"client": client, "resp": resp, "stream": True}
                 else:
                     resp = await client.post(url, json=req_body, headers=headers)
                     if resp.status_code == 429:
@@ -743,12 +727,10 @@ async def chat_completions(request: Request):
             if result.get("stream"):
                 http_resp = result["resp"]
                 http_client = result["client"]
-                first_chunk = result["first_chunk"]
 
-                async def stream_out(resp=http_resp, client=http_client, first=first_chunk):
+                async def stream_out(resp=http_resp, client=http_client):
                     try:
-                        yield first
-                        async for chunk in resp.aiter_bytes(1024):
+                        async for chunk in resp.aiter_bytes(4096):
                             yield chunk
                     finally:
                         await resp.aclose()
