@@ -58,6 +58,19 @@
 		id: '', name: '', tier: 'free', backends: [{ provider: '', model: '' }]
 	};
 
+	// ── Model tier lookup (cross-reference with facade models) ───────
+	function getModelTier(providerId: string, modelId: string): 'free' | 'paid' | null {
+		// Check if this backend model is used by any facade model
+		for (const fm of facadeModels) {
+			for (const b of (fm.backends || [])) {
+				if (b.provider === providerId && (b.model === modelId || b.model === '*')) {
+					return fm.tier || 'free';
+				}
+			}
+		}
+		return null; // not mapped to any facade model
+	}
+
 	// ── Known provider templates ──────────────────────────────────────
 	const PROVIDER_TEMPLATES: Record<string, any> = {
 		freemodel: {
@@ -665,12 +678,26 @@
 												<path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
 											</svg>
 										</div>
-										<button class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
-											<span>👁</span> Enable All
-										</button>
-										<button class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
-											<span>👁</span> Disable All
-										</button>
+										<button
+												on:click={() => {
+													const filtered = provider.models.filter(m => !searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.id.toLowerCase().includes(searchQuery.toLowerCase()));
+													filtered.forEach(m => provider.enabledModels.add(m.id));
+													providers = providers;
+													toast.success(`Enabled ${filtered.length} models`);
+												}}
+												class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
+												<span>👁</span> Enable All
+											</button>
+											<button
+												on:click={() => {
+													const filtered = provider.models.filter(m => !searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.id.toLowerCase().includes(searchQuery.toLowerCase()));
+													filtered.forEach(m => provider.enabledModels.delete(m.id));
+													providers = providers;
+													toast.success(`Disabled ${filtered.length} models`);
+												}}
+												class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
+												<span>👁</span> Disable All
+											</button>
 										<button on:click={() => syncModels(provider)}
 											class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
 											↻ Refresh
@@ -684,13 +711,22 @@
 									<!-- Model list -->
 									<div class="divide-y divide-gray-800/50">
 										{#each provider.models.filter(m => !searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.id.toLowerCase().includes(searchQuery.toLowerCase())) as model}
+											{@const tier = getModelTier(provider.id, model.id)}
 											<div class="px-5 py-3 flex items-center justify-between hover:bg-gray-800/30 transition">
 												<div>
 													<div class="font-medium text-sm">{model.name}</div>
 													<div class="text-xs text-orange-400 font-mono">{model.id}</div>
 												</div>
 												<div class="flex items-center gap-2">
-													<!-- Badges -->
+													<!-- Tier badge -->
+													{#if tier === 'free'}
+														<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-500/20 text-green-400">FREE</span>
+													{:else if tier === 'paid'}
+														<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">PAID</span>
+													{:else}
+														<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-400">UNMAPPED</span>
+													{/if}
+													<!-- Provider badge -->
 													<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 uppercase">
 														{model.owned_by || provider.name}
 													</span>
