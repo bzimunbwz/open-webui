@@ -1,741 +1,631 @@
 <script lang="ts">
 	import { onMount, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { config } from '$lib/stores';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 
 	const i18n = getContext('i18n');
 
-	// Gateway URL — set in admin settings or env
+	// ── Gateway connection ─────────────────────────────────────────────
 	let GATEWAY_URL = localStorage.getItem('gateway_url') || '';
 	let GATEWAY_ADMIN_KEY = localStorage.getItem('gateway_admin_key') || '';
-
-	let providers: any[] = [];
-	let facadeModels: any[] = [];
-	let providerHealth: any = {};
-
 	let showGatewayConfig = false;
+	let connected = false;
+
+	// ── Data ───────────────────────────────────────────────────────────
+	let providers: any[] = [];
+	let providerHealth: any = {};
+	let loading = true;
+
+	// ── UI state ──────────────────────────────────────────────────────
 	let showAddProvider = false;
-	let showAddModel = false;
-	let showBulkUpload = false;
-	let editingProvider: any = null;
-	let editingModel: any = null;
+	let expandedProviders: Record<string, boolean> = {};
+	let bulkUploadTarget = '';
+	let bulkText = '';
+	let searchQuery = '';
 
 	// New provider form
-	let newProvider = { id: '', name: '', base_url: '', api_keys: [''], tier: 'free' };
+	let newProvider = {
+		id: '', name: '', base_url: '', api_keys: [''],
+		description: '', docs_url: '', tier: 'free'
+	};
 
-	// New model form
-	let newModel = { id: '', name: '', tier: 'paid', backends: [{ provider: '', model: '' }] };
+	// ── Known provider templates ──────────────────────────────────────
+	const PROVIDER_TEMPLATES: Record<string, any> = {
+		freemodel: {
+			name: 'FreeModel.dev',
+			base_url: 'https://api.freemodel.dev/v1',
+			description: 'OpenAI-compatible provider. Add multiple API keys — requests automatically fall back to the next key on failure.',
+			docs_url: 'https://freemodel.dev/dashboard/docs',
+			icon: '✦'
+		},
+		freellmapi: {
+			name: 'FreeLLMAPI',
+			base_url: '',
+			description: 'Self-hosted proxy aggregating 16+ free LLM providers behind one /v1 endpoint.',
+			docs_url: 'https://github.com/tashfeenahmed/freellmapi',
+			icon: '☁'
+		},
+		llm7: {
+			name: 'LLM7',
+			base_url: 'https://api.llm7.io/v1',
+			description: 'OpenAI-compatible provider. Add multiple API keys — requests automatically fall back to the next key on failure. Get free keys at token.llm7.io.',
+			docs_url: 'https://docs.llm7.io/quickstart',
+			icon: '☁'
+		},
+		zai: {
+			name: 'Z.AI',
+			base_url: 'https://api.z.ai/api/paas/v4/',
+			description: 'OpenAI-compatible provider at https://api.z.ai/api/paas/v4. Add multiple API keys — requests automatically fall back to the next key on failure.',
+			docs_url: 'https://docs.z.ai/guides/overview/quick-start',
+			icon: '☁'
+		},
+		zenmux: {
+			name: 'ZenMux',
+			base_url: '',
+			description: 'Multi-provider router.',
+			docs_url: '',
+			icon: '☁'
+		}
+	};
 
-	// Bulk upload
-	let bulkText = '';
+	// ── API helpers ───────────────────────────────────────────────────
 
-	// ── Gateway API helpers ────────────────────────────────────────────
-
-	async function gatewayFetch(path: string, method = 'GET', body?: any) {
-		const url = `${GATEWAY_URL}${path}`;
-		const opts: any = {
+	async function gw(path: string, method = 'GET', body?: any) {
+		const res = await fetch(`${GATEWAY_URL}${path}`, {
 			method,
 			headers: {
 				'Content-Type': 'application/json',
 				'Authorization': `Bearer ${GATEWAY_ADMIN_KEY}`
-			}
-		};
-		if (body) opts.body = JSON.stringify(body);
-		const res = await fetch(url, opts);
-		if (!res.ok) {
-			const err = await res.text();
-			throw new Error(err);
-		}
+			},
+			...(body ? { body: JSON.stringify(body) } : {})
+		});
+		if (!res.ok) throw new Error(await res.text());
 		return res.json();
 	}
 
-	// ── Load data ──────────────────────────────────────────────────────
-
-	async function loadProviders() {
-		try {
-			const res = await gatewayFetch('/admin/providers');
-			providerHealth = res.providers || {};
-
-			// Also load full provider config
-			const configRes = await gatewayFetch('/admin/config');
-			providers = Object.entries(configRes.providers || {}).map(([id, p]: [string, any]) => ({
-				id,
-				...p,
-				api_keys: p.api_keys || [p.api_key || ''],
-			}));
-		} catch (e) {
-			// Providers endpoint might not have full config yet
-			try {
-				const res = await gatewayFetch('/admin/providers');
-				providerHealth = res.providers || {};
-				providers = Object.entries(providerHealth).map(([id, p]: [string, any]) => ({
-					id,
-					name: p.name,
-					base_url: p.base_url,
-					api_keys: [],
-					failures: p.failures,
-					in_cooldown: p.in_cooldown,
-				}));
-			} catch (e2) {
-				console.error('Failed to load providers', e2);
-			}
-		}
-	}
-
-	async function loadModels() {
-		try {
-			const res = await gatewayFetch('/admin/models');
-			facadeModels = res.models || [];
-		} catch (e) {
-			console.error('Failed to load models', e);
-		}
-	}
+	// ── Load ──────────────────────────────────────────────────────────
 
 	async function loadAll() {
 		if (!GATEWAY_URL || !GATEWAY_ADMIN_KEY) {
 			showGatewayConfig = true;
+			loading = false;
 			return;
 		}
-		await Promise.all([loadProviders(), loadModels()]);
+		loading = true;
+		try {
+			const config = await gw('/admin/config');
+			const health = await gw('/admin/providers');
+			providerHealth = health.providers || {};
+
+			providers = Object.entries(config.providers || {}).map(([id, p]: [string, any]) => {
+				const tmpl = PROVIDER_TEMPLATES[id] || {};
+				return {
+					id,
+					name: p.name || tmpl.name || id,
+					base_url: p.base_url || tmpl.base_url || '',
+					api_keys: p.api_keys || [],
+					description: tmpl.description || '',
+					docs_url: tmpl.docs_url || '',
+					icon: tmpl.icon || '☁',
+					health: providerHealth[id] || {},
+					models: [], // populated by sync
+					enabledModels: new Set(),
+				};
+			});
+
+			connected = true;
+			// Auto-expand all
+			providers.forEach(p => { expandedProviders[p.id] = true; });
+		} catch (e: any) {
+			toast.error(`Connection failed: ${e.message}`);
+			connected = false;
+		}
+		loading = false;
 	}
 
-	// ── Provider CRUD ──────────────────────────────────────────────────
+	// ── Provider CRUD ─────────────────────────────────────────────────
 
-	async function saveProvider(provider: any) {
+	async function saveProvider(p: any) {
 		try {
-			await gatewayFetch(`/admin/providers/${provider.id}`, 'PUT', {
-				name: provider.name,
-				base_url: provider.base_url,
-				api_keys: provider.api_keys.filter((k: string) => k.trim()),
+			await gw(`/admin/providers/${p.id}`, 'PUT', {
+				name: p.name,
+				base_url: p.base_url,
+				api_keys: p.api_keys.filter((k: string) => k.trim()),
 			});
-			toast.success(`Provider "${provider.name}" updated`);
-			await loadProviders();
-		} catch (e: any) {
-			toast.error(`Failed: ${e.message}`);
-		}
+			toast.success(`${p.name} saved`);
+			await loadAll();
+		} catch (e: any) { toast.error(e.message); }
 	}
 
 	async function createProvider() {
+		if (!newProvider.id || !newProvider.name) {
+			toast.error('ID and Name are required');
+			return;
+		}
 		try {
-			await gatewayFetch('/admin/providers', 'POST', {
+			await gw('/admin/providers', 'POST', {
 				id: newProvider.id,
 				name: newProvider.name,
 				base_url: newProvider.base_url,
 				api_keys: newProvider.api_keys.filter((k: string) => k.trim()),
 			});
-			toast.success(`Provider "${newProvider.name}" created`);
-			newProvider = { id: '', name: '', base_url: '', api_keys: [''], tier: 'free' };
+			toast.success(`${newProvider.name} created`);
+			newProvider = { id: '', name: '', base_url: '', api_keys: [''], description: '', docs_url: '', tier: 'free' };
 			showAddProvider = false;
-			await loadProviders();
-		} catch (e: any) {
-			toast.error(`Failed: ${e.message}`);
-		}
+			await loadAll();
+		} catch (e: any) { toast.error(e.message); }
 	}
 
-	async function deleteProvider(id: string) {
-		if (!confirm('Delete this provider? Models using it will lose this backend.')) return;
+	async function deleteProvider(id: string, name: string) {
+		if (!confirm(`Delete provider "${name}"? Models using it will lose this backend.`)) return;
 		try {
-			await gatewayFetch(`/admin/providers/${id}`, 'DELETE');
-			toast.success('Provider deleted');
-			await loadProviders();
-		} catch (e: any) {
-			toast.error(`Failed: ${e.message}`);
-		}
+			await gw(`/admin/providers/${id}`, 'DELETE');
+			toast.success(`${name} deleted`);
+			await loadAll();
+		} catch (e: any) { toast.error(e.message); }
 	}
 
 	async function resetProvider(id: string) {
 		try {
-			await gatewayFetch(`/admin/providers/${id}/reset`, 'POST');
+			await gw(`/admin/providers/${id}/reset`, 'POST');
 			toast.success('Provider reset');
-			await loadProviders();
-		} catch (e: any) {
-			toast.error(`Failed: ${e.message}`);
-		}
+			await loadAll();
+		} catch (e: any) { toast.error(e.message); }
 	}
 
-	// ── Bulk upload keys ───────────────────────────────────────────────
+	// ── Key management ────────────────────────────────────────────────
 
-	async function bulkUploadKeys(providerId: string) {
-		const keys = bulkText
-			.split('\n')
-			.map((k: string) => k.trim())
-			.filter((k: string) => k && !k.startsWith('#'));
+	function addKey(provider: any) {
+		provider.api_keys = [...provider.api_keys, ''];
+		providers = providers;
+	}
 
-		if (!keys.length) {
-			toast.error('No valid keys found');
-			return;
-		}
+	function removeKey(provider: any, idx: number) {
+		provider.api_keys = provider.api_keys.filter((_: any, i: number) => i !== idx);
+		providers = providers;
+	}
 
-		const provider = providers.find((p: any) => p.id === providerId);
+	function maskKey(key: string): string {
+		if (!key || key.length < 12) return '••••••••';
+		return key.slice(0, 8) + ' ... ' + key.slice(-4);
+	}
+
+	async function bulkAddKeys() {
+		const keys = bulkText.split('\n').map(k => k.trim()).filter(k => k && !k.startsWith('#'));
+		if (!keys.length) { toast.error('No valid keys'); return; }
+
+		const provider = providers.find(p => p.id === bulkUploadTarget);
 		if (!provider) return;
 
-		const existingKeys = provider.api_keys || [];
-		const allKeys = [...new Set([...existingKeys, ...keys])]; // deduplicate
-
+		const allKeys = [...new Set([...provider.api_keys, ...keys])];
 		try {
-			await gatewayFetch(`/admin/providers/${providerId}`, 'PUT', {
+			await gw(`/admin/providers/${provider.id}`, 'PUT', {
 				name: provider.name,
 				base_url: provider.base_url,
 				api_keys: allKeys,
 			});
 			toast.success(`Added ${keys.length} keys to ${provider.name}`);
 			bulkText = '';
-			showBulkUpload = false;
-			await loadProviders();
-		} catch (e: any) {
-			toast.error(`Failed: ${e.message}`);
-		}
+			bulkUploadTarget = '';
+			await loadAll();
+		} catch (e: any) { toast.error(e.message); }
 	}
 
-	// ── Model CRUD ─────────────────────────────────────────────────────
+	// ── Sync models from provider ─────────────────────────────────────
 
-	async function createModel() {
+	async function syncModels(provider: any) {
+		if (!provider.base_url) {
+			toast.error('No base URL configured');
+			return;
+		}
 		try {
-			await gatewayFetch('/admin/models', 'POST', newModel);
-			toast.success(`Model "${newModel.name}" created`);
-			newModel = { id: '', name: '', tier: 'paid', backends: [{ provider: '', model: '' }] };
-			showAddModel = false;
-			await loadModels();
+			const key = provider.api_keys[0] || '';
+			const headers: any = { 'Content-Type': 'application/json' };
+			if (key) headers['Authorization'] = `Bearer ${key}`;
+
+			const res = await fetch(`${provider.base_url.replace(/\/$/, '')}/models`, { headers });
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const data = await res.json();
+			provider.models = (data.data || data.models || []).map((m: any) => ({
+				id: m.id,
+				name: m.name || m.id,
+				owned_by: m.owned_by || '',
+				context_length: m.context_length || m.context_window || null,
+				capabilities: {
+					tools: m.capabilities?.tools || false,
+					vision: m.capabilities?.vision || false,
+				},
+			}));
+			providers = providers;
+			toast.success(`Loaded ${provider.models.length} models from ${provider.name}`);
 		} catch (e: any) {
-			toast.error(`Failed: ${e.message}`);
+			toast.error(`Sync failed: ${e.message}`);
 		}
 	}
 
-	async function updateModel(model: any) {
-		try {
-			await gatewayFetch(`/admin/models/${model.id}`, 'PUT', {
-				name: model.name,
-				tier: model.tier,
-				backends: model.backends,
-			});
-			toast.success(`Model "${model.name}" updated`);
-			editingModel = null;
-			await loadModels();
-		} catch (e: any) {
-			toast.error(`Failed: ${e.message}`);
-		}
-	}
-
-	async function deleteModel(id: string) {
-		if (!confirm('Delete this facade model?')) return;
-		try {
-			await gatewayFetch(`/admin/models/${id}`, 'DELETE');
-			toast.success('Model deleted');
-			await loadModels();
-		} catch (e: any) {
-			toast.error(`Failed: ${e.message}`);
-		}
-	}
-
-	async function toggleModelTier(model: any) {
-		const newTier = model.tier === 'free' ? 'paid' : 'free';
-		try {
-			await gatewayFetch(`/admin/models/${model.id}/tier`, 'POST', { tier: newTier });
-			toast.success(`${model.name} → ${newTier.toUpperCase()}`);
-			await loadModels();
-		} catch (e: any) {
-			toast.error(`Failed: ${e.message}`);
-		}
-	}
-
-	// ── Gateway config ─────────────────────────────────────────────────
+	// ── Gateway config ────────────────────────────────────────────────
 
 	function saveGatewayConfig() {
 		localStorage.setItem('gateway_url', GATEWAY_URL);
 		localStorage.setItem('gateway_admin_key', GATEWAY_ADMIN_KEY);
 		showGatewayConfig = false;
-		toast.success('Gateway config saved');
+		toast.success('Connected');
 		loadAll();
 	}
 
-	// ── Key helpers ────────────────────────────────────────────────────
+	// ── Template selector ─────────────────────────────────────────────
 
-	function addKeyToProvider(provider: any) {
-		provider.api_keys = [...provider.api_keys, ''];
-		providers = providers;
+	function applyTemplate(templateId: string) {
+		const tmpl = PROVIDER_TEMPLATES[templateId];
+		if (tmpl) {
+			newProvider.id = templateId;
+			newProvider.name = tmpl.name;
+			newProvider.base_url = tmpl.base_url;
+			newProvider.description = tmpl.description;
+			newProvider.docs_url = tmpl.docs_url;
+		}
 	}
 
-	function removeKeyFromProvider(provider: any, index: number) {
-		provider.api_keys = provider.api_keys.filter((_: any, i: number) => i !== index);
-		providers = providers;
-	}
-
-	function maskKey(key: string): string {
-		if (!key || key.length < 8) return '••••••••';
-		return key.slice(0, 4) + '••••' + key.slice(-4);
-	}
-
-	onMount(() => {
-		loadAll();
-	});
-
-	let activeTab = 'providers';
-	let bulkUploadProviderId = '';
+	onMount(() => { loadAll(); });
 </script>
 
-<div class="flex flex-col gap-4 px-6 py-4 h-full overflow-y-auto">
-	<!-- Gateway Connection Banner -->
-	{#if showGatewayConfig || !GATEWAY_URL}
-		<div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800">
-			<h3 class="text-lg font-semibold mb-3">Gateway Connection</h3>
-			<p class="text-sm text-gray-500 mb-4">Connect to your Facade Model Gateway to manage providers and models.</p>
-			<div class="flex flex-col gap-3">
-				<div>
-					<label class="text-sm font-medium mb-1 block">Gateway URL</label>
-					<input
-						type="text"
-						bind:value={GATEWAY_URL}
-						placeholder="https://your-gateway.up.railway.app"
-						class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-					/>
-				</div>
-				<div>
-					<label class="text-sm font-medium mb-1 block">Admin API Key</label>
-					<input
-						type="password"
-						bind:value={GATEWAY_ADMIN_KEY}
-						placeholder="sk-gateway-admin"
-						class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-					/>
-				</div>
-				<button
-					on:click={saveGatewayConfig}
-					class="self-start px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
-				>
-					Connect
-				</button>
-			</div>
-		</div>
-	{/if}
+<!-- ══════════════════════════════════════════════════════════════════ -->
 
-	{#if GATEWAY_URL && GATEWAY_ADMIN_KEY}
-		<!-- Tabs -->
-		<div class="flex gap-2 border-b border-gray-200 dark:border-gray-800">
-			<button
-				class="px-4 py-2 text-sm font-medium transition {activeTab === 'providers'
-					? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-					: 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}"
-				on:click={() => (activeTab = 'providers')}
-			>
-				Providers
-			</button>
-			<button
-				class="px-4 py-2 text-sm font-medium transition {activeTab === 'models'
-					? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-					: 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}"
-				on:click={() => (activeTab = 'models')}
-			>
-				Facade Models
-			</button>
-			<div class="ml-auto flex items-center gap-2">
+<div class="flex flex-col h-full overflow-y-auto">
+	<!-- Header -->
+	<div class="px-6 pt-5 pb-3">
+		<div class="flex items-center justify-between mb-1">
+			<h1 class="text-2xl font-bold">Providers</h1>
+			<div class="flex items-center gap-2">
 				<button
 					on:click={() => (showGatewayConfig = !showGatewayConfig)}
-					class="text-xs text-gray-400 hover:text-gray-600 transition"
+					class="text-xs text-gray-400 hover:text-gray-200 transition px-2 py-1"
 				>
-					Gateway Settings
+					{#if connected}
+						<span class="inline-block w-2 h-2 rounded-full bg-green-500 mr-1"></span>Gateway
+					{:else}
+						<span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"></span>Disconnected
+					{/if}
 				</button>
 				<button
 					on:click={loadAll}
-					class="text-xs px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+					class="text-xs px-3 py-1.5 bg-gray-800 rounded-lg hover:bg-gray-700 transition"
+				>Refresh</button>
+				<button
+					on:click={() => (showAddProvider = true)}
+					class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center gap-1"
 				>
-					Refresh
+					<span class="text-sm">+</span> Add Provider
 				</button>
 			</div>
 		</div>
+		<p class="text-sm text-gray-500">Manage AI model providers and toggle individual models</p>
+	</div>
 
-		<!-- PROVIDERS TAB -->
-		{#if activeTab === 'providers'}
-			<div class="flex items-center justify-between">
-				<h2 class="text-lg font-semibold">LLM Providers</h2>
-				<button
-					on:click={() => (showAddProvider = true)}
-					class="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-						<path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
-					</svg>
-					Add Provider
-				</button>
+	<!-- Gateway Config Banner -->
+	{#if showGatewayConfig}
+		<div class="mx-6 mb-4 bg-gray-900 rounded-xl p-5 border border-gray-800">
+			<h3 class="text-sm font-semibold mb-3">Gateway Connection</h3>
+			<div class="flex gap-3 mb-3">
+				<div class="flex-1">
+					<label class="text-xs text-gray-400 mb-1 block">Gateway URL</label>
+					<input bind:value={GATEWAY_URL} placeholder="https://your-gateway.up.railway.app"
+						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
+				</div>
+				<div class="flex-1">
+					<label class="text-xs text-gray-400 mb-1 block">Admin Key</label>
+					<input type="password" bind:value={GATEWAY_ADMIN_KEY} placeholder="sk-gateway-admin"
+						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
+				</div>
 			</div>
+			<button on:click={saveGatewayConfig}
+				class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">
+				Connect
+			</button>
+		</div>
+	{/if}
 
-			<!-- Add Provider Form -->
-			{#if showAddProvider}
-				<div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
-					<h3 class="text-sm font-semibold mb-3">New Provider</h3>
-					<div class="grid grid-cols-2 gap-3 mb-3">
-						<div>
-							<label class="text-xs font-medium mb-1 block">Provider ID</label>
-							<input
-								bind:value={newProvider.id}
-								placeholder="e.g. freemodel"
-								class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-							/>
-						</div>
-						<div>
-							<label class="text-xs font-medium mb-1 block">Display Name</label>
-							<input
-								bind:value={newProvider.name}
-								placeholder="e.g. FreeModel.dev"
-								class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-							/>
-						</div>
-					</div>
-					<div class="mb-3">
-						<label class="text-xs font-medium mb-1 block">Base URL</label>
-						<input
-							bind:value={newProvider.base_url}
-							placeholder="https://api.freemodel.dev/v1"
-							class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-						/>
-					</div>
-					<div class="mb-3">
-						<label class="text-xs font-medium mb-1 block">API Keys</label>
-						{#each newProvider.api_keys as key, i}
-							<div class="flex gap-2 mb-1">
-								<input
-									bind:value={newProvider.api_keys[i]}
-									placeholder="sk-..."
-									type="password"
-									class="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-								/>
-								{#if newProvider.api_keys.length > 1}
-									<button
-										on:click={() => { newProvider.api_keys = newProvider.api_keys.filter((_, idx) => idx !== i); }}
-										class="text-red-500 hover:text-red-700 text-sm px-2"
-									>X</button>
-								{/if}
-							</div>
+	{#if loading}
+		<div class="flex items-center justify-center py-20">
+			<div class="animate-spin w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+		</div>
+	{:else if connected}
+
+		<!-- Add Provider Form -->
+		{#if showAddProvider}
+			<div class="mx-6 mb-4 bg-gray-900 rounded-xl p-5 border border-gray-800">
+				<div class="flex items-center justify-between mb-3">
+					<h3 class="text-sm font-semibold">Add New Provider</h3>
+					<div class="flex gap-1">
+						{#each Object.entries(PROVIDER_TEMPLATES) as [tid, tmpl]}
+							<button on:click={() => applyTemplate(tid)}
+								class="text-xs px-2 py-1 bg-gray-800 rounded hover:bg-gray-700 transition">
+								{tmpl.name}
+							</button>
 						{/each}
-						<button
-							on:click={() => { newProvider.api_keys = [...newProvider.api_keys, '']; }}
-							class="text-xs text-blue-500 hover:text-blue-700 mt-1"
-						>+ Add another key</button>
-					</div>
-					<div class="flex gap-2">
-						<button on:click={createProvider} class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">Create</button>
-						<button on:click={() => (showAddProvider = false)} class="px-4 py-2 bg-gray-200 dark:bg-gray-800 text-sm rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition">Cancel</button>
 					</div>
 				</div>
-			{/if}
-
-			<!-- Provider List -->
-			<div class="flex flex-col gap-3">
-				{#each providers as provider}
-					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-						<div class="flex items-center justify-between mb-3">
-							<div class="flex items-center gap-3">
-								<h3 class="font-semibold">{provider.name || provider.id}</h3>
-								<span class="text-xs text-gray-400">{provider.id}</span>
-
-								<!-- Health indicator -->
-								{#if providerHealth[provider.id]}
-									{#if providerHealth[provider.id].in_cooldown}
-										<span class="text-xs px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
-											Cooldown ({providerHealth[provider.id].cooldown_remaining_s}s)
-										</span>
-									{:else if providerHealth[provider.id].failures > 0}
-										<span class="text-xs px-2 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400">
-											{providerHealth[provider.id].failures} failures
-										</span>
-									{:else}
-										<span class="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">
-											Healthy
-										</span>
-									{/if}
-								{/if}
-							</div>
-
-							<div class="flex items-center gap-2">
-								<button
-									on:click={() => resetProvider(provider.id)}
-									class="text-xs px-2 py-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition"
-								>Reset</button>
-								<button
-									on:click={() => { bulkUploadProviderId = provider.id; showBulkUpload = true; }}
-									class="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition"
-								>Bulk Upload Keys</button>
-								<button
-									on:click={() => deleteProvider(provider.id)}
-									class="text-xs px-2 py-1 text-red-500 hover:text-red-700 transition"
-								>Delete</button>
-							</div>
-						</div>
-
-						<div class="text-sm text-gray-500 mb-3">
-							<span class="font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">{provider.base_url || 'Not set'}</span>
-						</div>
-
-						<!-- API Keys -->
-						<div>
-							<div class="flex items-center justify-between mb-2">
-								<label class="text-xs font-medium text-gray-600 dark:text-gray-400">
-									API Keys ({(provider.api_keys || []).length})
-								</label>
-								<button
-									on:click={() => addKeyToProvider(provider)}
-									class="text-xs text-blue-500 hover:text-blue-700"
-								>+ Add Key</button>
-							</div>
-
-							{#each provider.api_keys || [] as key, i}
-								<div class="flex items-center gap-2 mb-1">
-									<div class="flex-1 flex items-center gap-2">
-										<span class="text-xs text-gray-400 w-6">#{i + 1}</span>
-										<input
-											type="password"
-											bind:value={provider.api_keys[i]}
-											class="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 text-sm font-mono"
-										/>
-									</div>
-									<button
-										on:click={() => removeKeyFromProvider(provider, i)}
-										class="text-red-400 hover:text-red-600 text-xs px-1"
-									>X</button>
-								</div>
-							{/each}
-
-							{#if (provider.api_keys || []).length > 0}
-								<div class="mt-2 flex justify-end">
-									<button
-										on:click={() => saveProvider(provider)}
-										class="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
-									>Save Keys</button>
-								</div>
-							{/if}
-						</div>
+				<div class="grid grid-cols-3 gap-3 mb-3">
+					<div>
+						<label class="text-xs text-gray-400 mb-1 block">Provider ID</label>
+						<input bind:value={newProvider.id} placeholder="e.g. freemodel"
+							class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
 					</div>
-				{/each}
-
-				{#if providers.length === 0}
-					<div class="text-center py-8 text-gray-400">
-						No providers configured. Click "Add Provider" to get started.
+					<div>
+						<label class="text-xs text-gray-400 mb-1 block">Display Name</label>
+						<input bind:value={newProvider.name} placeholder="e.g. FreeModel.dev"
+							class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
 					</div>
-				{/if}
+					<div>
+						<label class="text-xs text-gray-400 mb-1 block">Base URL</label>
+						<input bind:value={newProvider.base_url} placeholder="https://api.provider.com/v1"
+							class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
+					</div>
+				</div>
+				<div class="mb-3">
+					<label class="text-xs text-gray-400 mb-1 block">API Keys (one per line)</label>
+					<textarea
+						bind:value={newProvider.api_keys[0]}
+						placeholder="sk-key-1"
+						rows="2"
+						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-mono"
+					></textarea>
+				</div>
+				<div class="flex gap-2">
+					<button on:click={createProvider} class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">Create</button>
+					<button on:click={() => (showAddProvider = false)} class="px-4 py-2 bg-gray-800 text-sm rounded-lg hover:bg-gray-700 transition">Cancel</button>
+				</div>
 			</div>
-
-			<!-- Bulk Upload Modal -->
-			{#if showBulkUpload}
-				<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-					<div class="bg-white dark:bg-gray-900 rounded-xl p-6 w-[500px] max-w-[90vw] border border-gray-200 dark:border-gray-800">
-						<h3 class="text-lg font-semibold mb-2">Bulk Upload API Keys</h3>
-						<p class="text-sm text-gray-500 mb-4">
-							Paste one key per line. Duplicates will be skipped. Lines starting with # are ignored.
-						</p>
-						<textarea
-							bind:value={bulkText}
-							placeholder="sk-key-1&#10;sk-key-2&#10;sk-key-3&#10;# comment lines are ignored"
-							rows="8"
-							class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-sm font-mono mb-4"
-						></textarea>
-						<div class="flex justify-end gap-2">
-							<button
-								on:click={() => { showBulkUpload = false; bulkText = ''; }}
-								class="px-4 py-2 bg-gray-200 dark:bg-gray-800 text-sm rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition"
-							>Cancel</button>
-							<button
-								on:click={() => bulkUploadKeys(bulkUploadProviderId)}
-								class="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition"
-							>Upload {bulkText.split('\n').filter(l => l.trim() && !l.startsWith('#')).length} Keys</button>
-						</div>
-					</div>
-				</div>
-			{/if}
 		{/if}
 
-		<!-- MODELS TAB -->
-		{#if activeTab === 'models'}
-			<div class="flex items-center justify-between">
-				<h2 class="text-lg font-semibold">Facade Models</h2>
-				<button
-					on:click={() => (showAddModel = true)}
-					class="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-						<path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
-					</svg>
-					Add Model
-				</button>
-			</div>
+		<!-- ══ ALL PROVIDERS LIST ══════════════════════════════════════ -->
+		<div class="flex flex-col gap-4 px-6 pb-6">
+			{#each providers as provider (provider.id)}
+				<div class="bg-gray-900/50 rounded-2xl border border-gray-800 overflow-hidden">
 
-			<!-- Add Model Form -->
-			{#if showAddModel}
-				<div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
-					<h3 class="text-sm font-semibold mb-3">New Facade Model</h3>
-					<div class="grid grid-cols-2 gap-3 mb-3">
-						<div>
-							<label class="text-xs font-medium mb-1 block">Model ID</label>
-							<input
-								bind:value={newModel.id}
-								placeholder="e.g. claude-opus-4.8"
-								class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-							/>
-						</div>
-						<div>
-							<label class="text-xs font-medium mb-1 block">Display Name</label>
-							<input
-								bind:value={newModel.name}
-								placeholder="e.g. Claude Opus 4.8"
-								class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-							/>
-						</div>
-					</div>
-					<div class="mb-3">
-						<label class="text-xs font-medium mb-1 block">Default Tier</label>
-						<select
-							bind:value={newModel.tier}
-							class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-						>
-							<option value="paid">Paid</option>
-							<option value="free">Free</option>
-						</select>
-					</div>
-
-					<!-- Backends -->
-					<div class="mb-3">
-						<label class="text-xs font-medium mb-2 block">Backend Providers (fallback order)</label>
-						{#each newModel.backends as backend, i}
-							<div class="flex gap-2 mb-2">
-								<select
-									bind:value={newModel.backends[i].provider}
-									class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-								>
-									<option value="">Select provider</option>
-									{#each providers as p}
-										<option value={p.id}>{p.name || p.id}</option>
-									{/each}
-								</select>
-								<input
-									bind:value={newModel.backends[i].model}
-									placeholder="Backend model ID"
-									class="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-								/>
-								{#if newModel.backends.length > 1}
-									<button
-										on:click={() => { newModel.backends = newModel.backends.filter((_, idx) => idx !== i); }}
-										class="text-red-500 hover:text-red-700 text-sm px-2"
-									>X</button>
-								{/if}
+					<!-- Provider Header -->
+					<button
+						class="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-800/50 transition cursor-pointer"
+						on:click={() => { expandedProviders[provider.id] = !expandedProviders[provider.id]; }}
+					>
+						<div class="flex items-center gap-3">
+							<span class="text-lg">{PROVIDER_TEMPLATES[provider.id]?.icon || '☁'}</span>
+							<div class="text-left">
+								<h2 class="font-semibold text-base">{provider.name}</h2>
+								<span class="text-xs text-gray-500 font-mono">{provider.base_url || 'Not configured'}</span>
 							</div>
-						{/each}
-						<button
-							on:click={() => { newModel.backends = [...newModel.backends, { provider: '', model: '' }]; }}
-							class="text-xs text-blue-500 hover:text-blue-700"
-						>+ Add fallback provider</button>
-					</div>
+						</div>
 
-					<div class="flex gap-2">
-						<button on:click={createModel} class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">Create</button>
-						<button on:click={() => (showAddModel = false)} class="px-4 py-2 bg-gray-200 dark:bg-gray-800 text-sm rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition">Cancel</button>
-					</div>
-				</div>
-			{/if}
+						<div class="flex items-center gap-3">
+							<!-- Health badge -->
+							{#if provider.health?.in_cooldown}
+								<span class="text-xs px-2 py-0.5 rounded-full bg-red-900/40 text-red-400">Cooldown</span>
+							{:else if provider.health?.failures > 0}
+								<span class="text-xs px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400">{provider.health.failures} failures</span>
+							{:else}
+								<span class="text-xs px-2 py-0.5 rounded-full bg-green-900/40 text-green-400">Healthy</span>
+							{/if}
 
-			<!-- Model List -->
-			<div class="flex flex-col gap-2">
-				{#each facadeModels as model}
-					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-						{#if editingModel?.id === model.id}
-							<!-- Edit mode -->
-							<div class="flex flex-col gap-3">
-								<div class="grid grid-cols-2 gap-3">
-									<div>
-										<label class="text-xs font-medium mb-1 block">Model ID</label>
-										<input value={editingModel.id} disabled class="w-full rounded-lg border bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-400" />
-									</div>
-									<div>
-										<label class="text-xs font-medium mb-1 block">Display Name</label>
-										<input bind:value={editingModel.name} class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm" />
-									</div>
-								</div>
+							<!-- Key count -->
+							<span class="text-xs text-gray-500">{provider.api_keys.length} key{provider.api_keys.length !== 1 ? 's' : ''}</span>
 
-								<div>
-									<label class="text-xs font-medium mb-2 block">Backend Providers</label>
-									{#each editingModel.backends as backend, i}
-										<div class="flex gap-2 mb-2">
-											<select
-												bind:value={editingModel.backends[i].provider}
-												class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-											>
-												<option value="">Select provider</option>
-												{#each providers as p}
-													<option value={p.id}>{p.name || p.id}</option>
-												{/each}
-											</select>
-											<input
-												bind:value={editingModel.backends[i].model}
-												placeholder="Backend model ID"
-												class="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-											/>
-											{#if editingModel.backends.length > 1}
-												<button
-													on:click={() => { editingModel.backends = editingModel.backends.filter((_, idx) => idx !== i); }}
-													class="text-red-500 hover:text-red-700 text-sm px-2"
-												>X</button>
-											{/if}
+							<!-- Expand arrow -->
+							<svg class="w-4 h-4 text-gray-500 transition-transform {expandedProviders[provider.id] ? 'rotate-180' : ''}"
+								xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+								<path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+							</svg>
+						</div>
+					</button>
+
+					{#if expandedProviders[provider.id]}
+						<div class="border-t border-gray-800">
+
+							<!-- Config Section -->
+							<div class="px-5 py-4 bg-gray-900/80">
+								<div class="flex items-start gap-4">
+									<!-- Config card -->
+									<div class="flex-1 bg-gray-800/60 rounded-xl p-4 border border-gray-700/50">
+										<div class="flex items-center gap-2 mb-2">
+											<span class="text-gray-400">⚙</span>
+											<h3 class="font-semibold text-sm">{provider.name} Configuration</h3>
 										</div>
-									{/each}
-									<button
-										on:click={() => { editingModel.backends = [...editingModel.backends, { provider: '', model: '' }]; }}
-										class="text-xs text-blue-500 hover:text-blue-700"
-									>+ Add fallback</button>
+										{#if PROVIDER_TEMPLATES[provider.id]?.description}
+											<p class="text-xs text-gray-500 mb-3">
+												{PROVIDER_TEMPLATES[provider.id].description}
+												{#if PROVIDER_TEMPLATES[provider.id]?.docs_url}
+													<a href={PROVIDER_TEMPLATES[provider.id].docs_url} target="_blank" class="text-orange-400 hover:text-orange-300 ml-1">Docs →</a>
+												{/if}
+											</p>
+										{/if}
+
+										<!-- Base URL -->
+										<div class="mb-3">
+											<label class="text-xs text-gray-400 mb-1 block">Base URL</label>
+											<input bind:value={provider.base_url}
+												class="w-full rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm font-mono" />
+										</div>
+
+										<!-- Bulk key textarea -->
+										<div class="mb-3">
+											<label class="text-xs text-gray-400 mb-1 block">Paste one or more API keys — one per line</label>
+											<div class="flex gap-2">
+												<textarea
+													placeholder="Paste one or more {provider.name} API keys — one per line"
+													rows="2"
+													bind:value={bulkText}
+													on:focus={() => { bulkUploadTarget = provider.id; }}
+													class="flex-1 rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm font-mono"
+												></textarea>
+												<div class="flex flex-col gap-1">
+													<input placeholder="Label (optional)"
+														class="rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm w-40" />
+												</div>
+											</div>
+										</div>
+
+										<div class="flex gap-2 mb-4">
+											<button on:click={() => { bulkUploadTarget = provider.id; bulkAddKeys(); }}
+												class="px-3 py-1.5 bg-orange-600 text-white text-xs rounded-lg hover:bg-orange-700 transition flex items-center gap-1">
+												<span>+</span> Add Keys
+											</button>
+											<button on:click={() => syncModels(provider)}
+												class="px-3 py-1.5 bg-gray-700 text-xs rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
+												↻ Sync Models
+											</button>
+										</div>
+
+										<!-- Existing keys -->
+										{#if provider.api_keys.length > 0}
+											<div class="flex flex-col gap-1.5">
+												{#each provider.api_keys as key, i}
+													<div class="flex items-center gap-2 bg-gray-900/80 rounded-lg px-3 py-2 border border-gray-700/50">
+														<span class="text-xs text-gray-500 font-mono flex-1">{maskKey(key)}</span>
+														<span class="text-xs text-gray-600">{i + 1}</span>
+														<button class="text-xs px-2 py-0.5 bg-gray-700 rounded hover:bg-gray-600 transition"
+															on:click={async () => {
+																try {
+																	// Quick test: hit /models with this key
+																	const headers: any = { 'Authorization': `Bearer ${key}` };
+																	const res = await fetch(`${provider.base_url.replace(/\/$/, '')}/models`, { headers });
+																	if (res.ok) toast.success(`Key #${i+1} is valid`);
+																	else toast.error(`Key #${i+1} returned ${res.status}`);
+																} catch { toast.error(`Key #${i+1} connection failed`); }
+															}}>Test</button>
+														<button class="text-xs px-2 py-0.5 bg-gray-700 rounded hover:bg-gray-600 transition">Disable</button>
+														<button class="text-red-500 hover:text-red-400 transition"
+															on:click={() => { removeKey(provider, i); saveProvider(provider); }}>
+															<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+																<path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd" />
+															</svg>
+														</button>
+													</div>
+												{/each}
+											</div>
+										{/if}
+									</div>
 								</div>
 
-								<div class="flex gap-2">
-									<button on:click={() => updateModel(editingModel)} class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition">Save</button>
-									<button on:click={() => (editingModel = null)} class="px-4 py-2 bg-gray-200 dark:bg-gray-800 text-sm rounded-lg transition">Cancel</button>
+								<!-- Action buttons -->
+								<div class="flex items-center justify-between mt-3">
+									<div class="flex gap-2">
+										<button on:click={() => saveProvider(provider)}
+											class="text-xs px-3 py-1.5 bg-green-700 text-white rounded-lg hover:bg-green-600 transition">Save Config</button>
+										<button on:click={() => resetProvider(provider.id)}
+											class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition">Reset Health</button>
+									</div>
+									<button on:click={() => deleteProvider(provider.id, provider.name)}
+										class="text-xs px-3 py-1.5 text-red-400 hover:text-red-300 transition">Delete Provider</button>
 								</div>
 							</div>
-						{:else}
-							<!-- Display mode -->
-							<div class="flex items-center justify-between">
-								<div class="flex items-center gap-3">
-									<span class="font-semibold">{model.name}</span>
-									<span class="text-xs font-mono text-gray-400">{model.id}</span>
 
-									<button on:click={() => toggleModelTier(model)}>
-										{#if model.tier === 'free'}
-											<span class="text-xs font-bold px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400 uppercase cursor-pointer hover:bg-green-500/30 transition">
-												Free
-											</span>
-										{:else}
-											<span class="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 uppercase cursor-pointer hover:bg-amber-500/30 transition">
-												Paid
-											</span>
-										{/if}
+							<!-- Models Section -->
+							{#if provider.models && provider.models.length > 0}
+								<div class="border-t border-gray-800">
+									<!-- Model toolbar -->
+									<div class="px-5 py-3 flex items-center gap-3 bg-gray-900/40">
+										<div class="flex-1 relative">
+											<input
+												bind:value={searchQuery}
+												placeholder="Search {provider.name} models..."
+												class="w-full rounded-lg border border-gray-700 bg-gray-800 pl-8 pr-3 py-1.5 text-sm"
+											/>
+											<svg class="absolute left-2.5 top-2 w-3.5 h-3.5 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+												<path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
+											</svg>
+										</div>
+										<button class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
+											<span>👁</span> Enable All
+										</button>
+										<button class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
+											<span>👁</span> Disable All
+										</button>
+										<button on:click={() => syncModels(provider)}
+											class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition flex items-center gap-1">
+											↻ Refresh
+										</button>
+									</div>
+
+									<div class="px-5 py-1 text-xs text-gray-500">
+										{provider.models.length} models available
+									</div>
+
+									<!-- Model list -->
+									<div class="divide-y divide-gray-800/50">
+										{#each provider.models.filter(m => !searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.id.toLowerCase().includes(searchQuery.toLowerCase())) as model}
+											<div class="px-5 py-3 flex items-center justify-between hover:bg-gray-800/30 transition">
+												<div>
+													<div class="font-medium text-sm">{model.name}</div>
+													<div class="text-xs text-orange-400 font-mono">{model.id}</div>
+												</div>
+												<div class="flex items-center gap-2">
+													<!-- Badges -->
+													<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 uppercase">
+														{model.owned_by || provider.name}
+													</span>
+													{#if model.context_length}
+														<span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-300">
+															{model.context_length >= 1000000
+																? `${(model.context_length / 1000000).toFixed(1)}M CTX`
+																: model.context_length >= 1000
+																	? `${Math.round(model.context_length / 1000)}K CTX`
+																	: `${model.context_length} CTX`}
+														</span>
+													{/if}
+													{#if model.capabilities?.tools}
+														<span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-900/40 text-purple-400">⚡ TOOLS</span>
+													{/if}
+													{#if model.capabilities?.vision}
+														<span class="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-400">👁 VISION</span>
+													{/if}
+
+													<!-- Toggle -->
+													<button
+														class="w-10 h-5 rounded-full transition relative {provider.enabledModels.has(model.id) ? 'bg-orange-500' : 'bg-gray-600'}"
+														on:click={() => {
+															if (provider.enabledModels.has(model.id)) {
+																provider.enabledModels.delete(model.id);
+															} else {
+																provider.enabledModels.add(model.id);
+															}
+															providers = providers;
+														}}
+													>
+														<span class="absolute top-0.5 {provider.enabledModels.has(model.id) ? 'right-0.5' : 'left-0.5'} w-4 h-4 rounded-full bg-white transition-all shadow"></span>
+													</button>
+												</div>
+											</div>
+										{/each}
+									</div>
+								</div>
+							{:else}
+								<div class="px-5 py-4 text-center border-t border-gray-800">
+									<p class="text-sm text-gray-500 mb-2">No models loaded. Click "Sync Models" to fetch from this provider.</p>
+									<button on:click={() => syncModels(provider)}
+										class="text-xs px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition">
+										↻ Sync Models
 									</button>
 								</div>
+							{/if}
 
-								<div class="flex items-center gap-2">
-									<button
-										on:click={() => { editingModel = JSON.parse(JSON.stringify(model)); }}
-										class="text-xs px-2 py-1 text-blue-500 hover:text-blue-700 transition"
-									>Edit</button>
-									<button
-										on:click={() => deleteModel(model.id)}
-										class="text-xs px-2 py-1 text-red-500 hover:text-red-700 transition"
-									>Delete</button>
-								</div>
-							</div>
+						</div>
+					{/if}
+				</div>
+			{/each}
 
-							<!-- Backends summary -->
-							<div class="mt-2 flex flex-wrap gap-1">
-								{#each model.backends || [] as backend, i}
-									<span class="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded-full text-gray-500">
-										{i + 1}. {backend.provider} → {backend.model}
-									</span>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/each}
-
-				{#if facadeModels.length === 0}
-					<div class="text-center py-8 text-gray-400">
-						No facade models configured. Click "Add Model" to create one.
-					</div>
-				{/if}
-			</div>
-		{/if}
+			{#if providers.length === 0}
+				<div class="text-center py-16">
+					<p class="text-gray-400 mb-2">No providers configured yet.</p>
+					<button on:click={() => (showAddProvider = true)}
+						class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">
+						+ Add Your First Provider
+					</button>
+				</div>
+			{/if}
+		</div>
 	{/if}
 </div>
+
+<!-- Bulk Upload Modal -->
+{#if bulkUploadTarget && bulkText}
+	<!-- handled inline now -->
+{/if}
