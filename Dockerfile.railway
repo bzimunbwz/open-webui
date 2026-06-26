@@ -1,0 +1,6 @@
+FROM ghcr.io/open-webui/open-webui:main
+
+ENV PORT=8080
+ENV WEBUI_SECRET_KEY=your-secret-key-change-this
+
+EXPOSE 8080
