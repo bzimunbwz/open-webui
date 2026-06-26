@@ -14,7 +14,14 @@
 	}
 
 	// ── Gateway connection ─────────────────────────────────────────────
-	let GATEWAY_URL = lsGet('gateway_url') || 'https://webapp-2nd-service-production.up.railway.app';
+	function normalizeUrl(url: string): string {
+		url = url.trim().replace(/\/+$/, '');
+		if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+			url = 'https://' + url;
+		}
+		return url;
+	}
+	let GATEWAY_URL = normalizeUrl(lsGet('gateway_url')) || 'https://webapp-2nd-service-production.up.railway.app';
 	let GATEWAY_ADMIN_KEY = lsGet('gateway_admin_key') || 'sk-gateway-admin';
 	let showGatewayConfig = false;
 	let connected = false;
