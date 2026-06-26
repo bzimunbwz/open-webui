@@ -6,6 +6,9 @@ OpenAI-compatible proxy with:
 - Multiple API keys per provider with round-robin rotation
 - Automatic fallback across providers
 - Admin CRUD for providers, models, and tiers
+- Subscription packages with model access control
+- Coupon system (single/bulk, groups, monthly/yearly)
+- Payment via Binance Pay (personal), BEP20 USDT, TRC20 USDT
 - Persistent storage for all admin changes
 """
 
@@ -13,8 +16,14 @@ import os
 import re
 import json
 import time
+import uuid
+import hmac
+import hashlib
+import secrets
+import string
 import logging
 from pathlib import Path
+from datetime import datetime, timedelta
 
 import httpx
 from fastapi import FastAPI, Request, HTTPException
@@ -41,14 +50,26 @@ DATA_DIR = os.getenv("GATEWAY_DATA_DIR", "/app/data")
 PROVIDERS_PATH = os.path.join(DATA_DIR, "providers.json")
 MODELS_PATH = os.path.join(DATA_DIR, "models.json")
 TIERS_PATH = os.path.join(DATA_DIR, "tiers.json")
+PACKAGES_PATH = os.path.join(DATA_DIR, "packages.json")
+COUPONS_PATH = os.path.join(DATA_DIR, "coupons.json")
+SUBSCRIPTIONS_PATH = os.path.join(DATA_DIR, "subscriptions.json")
+PAYMENT_SETTINGS_PATH = os.path.join(DATA_DIR, "payment_settings.json")
+PAYMENT_HISTORY_PATH = os.path.join(DATA_DIR, "payment_history.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
 
 # Runtime state
-providers: dict = {}          # id → {name, base_url, api_keys: [...]}
-facade_models: dict = {}      # id → {id, name, tier, backends: [...]}
-model_tiers: dict = {}        # id → "free"|"paid"
-provider_status: dict = {}    # id → {failures, cooldown_until, ...}
-key_index: dict = {}          # provider_id → current key index (for rotation)
+providers: dict = {}
+facade_models: dict = {}
+model_tiers: dict = {}
+provider_status: dict = {}
+key_index: dict = {}
+
+# Subscription state
+packages: dict = {}           # id → {id, name, tier, models: [...], price_monthly, price_yearly, features, ...}
+coupons: dict = {}             # code → {code, group, package_id, duration, months, used_by: [...], max_uses, ...}
+subscriptions: dict = {}       # user_email → {package_id, tier, expires_at, payment_method, ...}
+payment_settings: dict = {}    # {binance_uid, binance_api_key, binance_api_secret, bep20_address, trc20_address}
+payment_history: list = []     # [{id, user_email, amount, method, tx_hash, status, ...}]
 
 
 def ensure_data_dir():
@@ -65,31 +86,36 @@ def load_all():
     load_providers()
     load_models()
     load_tiers()
+    load_packages()
+    load_coupons()
+    load_subscriptions()
+    load_payment_settings()
+    load_payment_history()
 
 
 def load_providers():
-    """Load providers: persistent overrides first, fall back to config.json."""
     global providers
-    # Try persistent first
     try:
         with open(PROVIDERS_PATH) as f:
             providers = json.load(f)
         logger.info(f"Loaded {len(providers)} providers from persistent storage")
     except FileNotFoundError:
-        # Fall back to config.json
-        with open(CONFIG_PATH) as f:
-            cfg = json.loads(resolve_env(f.read()))
-        raw_providers = cfg.get("providers", {})
-        providers = {}
-        for pid, p in raw_providers.items():
-            providers[pid] = {
-                "name": p.get("name", pid),
-                "base_url": p.get("base_url", ""),
-                "api_keys": p.get("api_keys", [p["api_key"]] if p.get("api_key") else []),
-            }
-        logger.info(f"Loaded {len(providers)} providers from config.json")
+        try:
+            with open(CONFIG_PATH) as f:
+                cfg = json.loads(resolve_env(f.read()))
+            raw_providers = cfg.get("providers", {})
+            providers = {}
+            for pid, p in raw_providers.items():
+                providers[pid] = {
+                    "name": p.get("name", pid),
+                    "base_url": p.get("base_url", ""),
+                    "api_keys": p.get("api_keys", [p["api_key"]] if p.get("api_key") else []),
+                }
+            logger.info(f"Loaded {len(providers)} providers from config.json")
+        except FileNotFoundError:
+            providers = {}
+            logger.info("No providers config found, starting empty")
 
-    # Init health tracking
     for pid in providers:
         if pid not in provider_status:
             provider_status[pid] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
@@ -105,19 +131,21 @@ def save_providers():
 
 def load_models():
     global facade_models
-    # Try persistent first
     try:
         with open(MODELS_PATH) as f:
             models_list = json.load(f)
         facade_models = {m["id"]: m for m in models_list}
         logger.info(f"Loaded {len(facade_models)} models from persistent storage")
     except FileNotFoundError:
-        with open(CONFIG_PATH) as f:
-            cfg = json.loads(resolve_env(f.read()))
-        facade_models = {}
-        for m in cfg.get("facade_models", []):
-            facade_models[m["id"]] = m
-        logger.info(f"Loaded {len(facade_models)} models from config.json")
+        try:
+            with open(CONFIG_PATH) as f:
+                cfg = json.loads(resolve_env(f.read()))
+            facade_models = {}
+            for m in cfg.get("facade_models", []):
+                facade_models[m["id"]] = m
+            logger.info(f"Loaded {len(facade_models)} models from config.json")
+        except FileNotFoundError:
+            facade_models = {}
 
 
 def save_models():
@@ -147,29 +175,149 @@ def get_model_tier(model_id: str) -> str:
     return facade_models.get(model_id, {}).get("tier", "paid")
 
 
+# ── Subscription Persistence ──────────────────────────────────────────────
+
+def load_packages():
+    global packages
+    try:
+        with open(PACKAGES_PATH) as f:
+            packages = json.load(f)
+        logger.info(f"Loaded {len(packages)} packages")
+    except FileNotFoundError:
+        # Default packages
+        packages = {
+            "free": {
+                "id": "free",
+                "name": "Free",
+                "tier": "free",
+                "description": "Access to free models",
+                "models": [],
+                "price_monthly": 0,
+                "price_yearly": 0,
+                "features": ["Access to free-tier models", "Community support"],
+                "active": True,
+                "order": 0,
+            },
+            "pro": {
+                "id": "pro",
+                "name": "Pro",
+                "tier": "pro",
+                "description": "Access to all models including premium",
+                "models": [],
+                "price_monthly": 9.99,
+                "price_yearly": 99.99,
+                "features": ["All free models", "Premium models", "Priority support", "Higher rate limits"],
+                "active": True,
+                "order": 1,
+            },
+            "enterprise": {
+                "id": "enterprise",
+                "name": "Enterprise",
+                "tier": "enterprise",
+                "description": "Full access with enterprise features",
+                "models": [],
+                "price_monthly": 29.99,
+                "price_yearly": 299.99,
+                "features": ["All Pro features", "Custom model access", "Dedicated support", "SLA guarantee"],
+                "active": True,
+                "order": 2,
+            },
+        }
+        save_packages()
+
+
+def save_packages():
+    ensure_data_dir()
+    with open(PACKAGES_PATH, "w") as f:
+        json.dump(packages, f, indent=2)
+
+
+def load_coupons():
+    global coupons
+    try:
+        with open(COUPONS_PATH) as f:
+            coupons = json.load(f)
+        logger.info(f"Loaded {len(coupons)} coupons")
+    except FileNotFoundError:
+        coupons = {}
+
+
+def save_coupons():
+    ensure_data_dir()
+    with open(COUPONS_PATH, "w") as f:
+        json.dump(coupons, f, indent=2)
+
+
+def load_subscriptions():
+    global subscriptions
+    try:
+        with open(SUBSCRIPTIONS_PATH) as f:
+            subscriptions = json.load(f)
+        logger.info(f"Loaded {len(subscriptions)} subscriptions")
+    except FileNotFoundError:
+        subscriptions = {}
+
+
+def save_subscriptions():
+    ensure_data_dir()
+    with open(SUBSCRIPTIONS_PATH, "w") as f:
+        json.dump(subscriptions, f, indent=2)
+
+
+def load_payment_settings():
+    global payment_settings
+    try:
+        with open(PAYMENT_SETTINGS_PATH) as f:
+            payment_settings = json.load(f)
+    except FileNotFoundError:
+        payment_settings = {
+            "binance_uid": "",
+            "binance_api_key": "",
+            "binance_api_secret": "",
+            "bep20_address": "",
+            "trc20_address": "",
+        }
+
+
+def save_payment_settings():
+    ensure_data_dir()
+    with open(PAYMENT_SETTINGS_PATH, "w") as f:
+        json.dump(payment_settings, f, indent=2)
+
+
+def load_payment_history():
+    global payment_history
+    try:
+        with open(PAYMENT_HISTORY_PATH) as f:
+            payment_history = json.load(f)
+    except FileNotFoundError:
+        payment_history = []
+
+
+def save_payment_history():
+    ensure_data_dir()
+    with open(PAYMENT_HISTORY_PATH, "w") as f:
+        json.dump(payment_history, f, indent=2)
+
+
 # ── API Key Rotation ───────────────────────────────────────────────────────
 
 def get_next_key(provider_id: str) -> str:
-    """Round-robin through provider's API keys."""
     prov = providers.get(provider_id, {})
     keys = prov.get("api_keys", [])
     if not keys:
         return ""
-
     idx = key_index.get(provider_id, 0) % len(keys)
     key_index[provider_id] = (idx + 1) % len(keys)
     return keys[idx]
 
 
 def mark_key_failed(provider_id: str, failed_key: str):
-    """On key failure, rotate to next key. If all keys exhausted, mark provider failed."""
     prov = providers.get(provider_id, {})
     keys = prov.get("api_keys", [])
     if len(keys) <= 1:
         mark_failure(provider_id)
         return
-
-    # Just rotate — the next attempt will use the next key
     logger.info(f"Rotating key for {provider_id} (key ending ...{failed_key[-4:] if len(failed_key) >= 4 else '****'} failed)")
 
 
@@ -207,7 +355,7 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
         return None
 
     keys = prov.get("api_keys", [])
-    attempts = max(len(keys), 1)  # Try each key at least once
+    attempts = max(len(keys), 1)
 
     for attempt in range(attempts):
         api_key = get_next_key(pid)
@@ -226,7 +374,6 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                     if resp.status_code == 429:
                         await resp.aclose()
                         mark_key_failed(pid, api_key)
-                        logger.info(f"Key rate-limited on {pid}, trying next key (attempt {attempt + 1}/{attempts})")
                         continue
                     if resp.status_code in RETRYABLE or resp.status_code >= 400:
                         await resp.aclose()
@@ -238,7 +385,6 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                     resp = await client.post(url, json=req_body, headers=headers)
                     if resp.status_code == 429:
                         mark_key_failed(pid, api_key)
-                        logger.info(f"Key rate-limited on {pid}, trying next key (attempt {attempt + 1}/{attempts})")
                         continue
                     if resp.status_code in RETRYABLE or resp.status_code >= 400:
                         mark_failure(pid)
@@ -255,9 +401,173 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
             logger.error(f"Provider {pid} unexpected: {e}")
             return None
 
-    # All keys exhausted
     mark_failure(pid)
     return None
+
+
+# ── Subscription Helpers ────────────────────────────────────────────────────
+
+def get_user_subscription(user_email: str) -> dict:
+    """Get user's active subscription, or free tier."""
+    sub = subscriptions.get(user_email)
+    if not sub:
+        return {"package_id": "free", "tier": "free", "active": True}
+    # Check expiry
+    expires = sub.get("expires_at", "")
+    if expires and datetime.fromisoformat(expires) < datetime.utcnow():
+        return {"package_id": "free", "tier": "free", "active": True, "expired": True}
+    return sub
+
+
+def can_access_model(user_email: str, model_id: str) -> bool:
+    """Check if user's subscription allows access to this model."""
+    tier = get_model_tier(model_id)
+    if tier == "free":
+        return True
+
+    sub = get_user_subscription(user_email)
+    pkg_id = sub.get("package_id", "free")
+    if pkg_id == "free":
+        return False
+
+    pkg = packages.get(pkg_id)
+    if not pkg:
+        return False
+
+    # If package has specific models listed, check membership
+    pkg_models = pkg.get("models", [])
+    if pkg_models:
+        return model_id in pkg_models
+
+    # If no specific models, grant access based on tier hierarchy
+    tier_order = {"free": 0, "pro": 1, "enterprise": 2}
+    pkg_tier = pkg.get("tier", "free")
+    return tier_order.get(pkg_tier, 0) >= tier_order.get("pro", 1)
+
+
+def generate_coupon_code(length: int = 8) -> str:
+    chars = string.ascii_uppercase + string.digits
+    return ''.join(secrets.choice(chars) for _ in range(length))
+
+
+# ── Payment Verification ────────────────────────────────────────────────────
+
+async def verify_binance_pay(tx_id: str, expected_amount: float, user_email: str) -> dict:
+    """Verify payment via Binance Pay personal account API."""
+    api_key = payment_settings.get("binance_api_key", "")
+    api_secret = payment_settings.get("binance_api_secret", "")
+    if not api_key or not api_secret:
+        return {"verified": False, "error": "Binance API not configured"}
+
+    timestamp = int(time.time() * 1000)
+    params = f"timestamp={timestamp}&recvWindow=60000"
+    signature = hmac.new(api_secret.encode(), params.encode(), hashlib.sha256).hexdigest()
+
+    url = f"https://api.binance.com/sapi/v1/pay/transactions?{params}&signature={signature}"
+    headers = {"X-MBX-APIKEY": api_key}
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                return {"verified": False, "error": f"Binance API returned {resp.status_code}"}
+            data = resp.json()
+            transactions = data.get("data", [])
+
+            for tx in transactions:
+                tx_amount = float(tx.get("amount", 0))
+                tx_status = tx.get("status", "")
+                order_id = tx.get("orderId", "")
+
+                if tx_status == "SUCCESS" and abs(tx_amount - expected_amount) < 0.01:
+                    return {"verified": True, "tx": tx, "order_id": order_id}
+
+            return {"verified": False, "error": "No matching transaction found"}
+    except Exception as e:
+        return {"verified": False, "error": str(e)}
+
+
+async def verify_bep20(tx_hash: str, expected_amount: float) -> dict:
+    """Verify BEP20 USDT transfer on BSC."""
+    to_address = payment_settings.get("bep20_address", "").lower()
+    if not to_address:
+        return {"verified": False, "error": "BEP20 address not configured"}
+
+    # USDT on BSC: 0x55d398326f99059fF775485246999027B3197955
+    usdt_contract = "0x55d398326f99059ff775485246999027b3197955"
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # Use BSCScan API (free tier)
+            url = f"https://api.bscscan.com/api?module=proxy&action=eth_getTransactionReceipt&txhash={tx_hash}"
+            resp = await client.get(url)
+            data = resp.json()
+            result = data.get("result")
+            if not result:
+                return {"verified": False, "error": "Transaction not found"}
+
+            if result.get("status") != "0x1":
+                return {"verified": False, "error": "Transaction failed"}
+
+            # Check logs for USDT Transfer event
+            for log in result.get("logs", []):
+                contract = log.get("address", "").lower()
+                if contract == usdt_contract:
+                    # Transfer(from, to, value) — topic[2] is the 'to' address
+                    topics = log.get("topics", [])
+                    if len(topics) >= 3:
+                        log_to = "0x" + topics[2][-40:]
+                        if log_to.lower() == to_address:
+                            # Decode value (uint256 in data field)
+                            raw_value = int(log.get("data", "0x0"), 16)
+                            value = raw_value / 1e18  # USDT on BSC has 18 decimals
+                            if abs(value - expected_amount) < 0.01:
+                                return {"verified": True, "amount": value, "tx_hash": tx_hash}
+
+            return {"verified": False, "error": "No matching USDT transfer in transaction"}
+    except Exception as e:
+        return {"verified": False, "error": str(e)}
+
+
+async def verify_trc20(tx_hash: str, expected_amount: float) -> dict:
+    """Verify TRC20 USDT transfer on TRON."""
+    to_address = payment_settings.get("trc20_address", "")
+    if not to_address:
+        return {"verified": False, "error": "TRC20 address not configured"}
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            url = f"https://apilist.tronscanapi.com/api/transaction-info?hash={tx_hash}"
+            resp = await client.get(url)
+            data = resp.json()
+
+            if not data or data.get("contractRet") != "SUCCESS":
+                return {"verified": False, "error": "Transaction not found or failed"}
+
+            # Check TRC20 transfers in tokenTransferInfo
+            token_info = data.get("tokenTransferInfo", {})
+            if token_info:
+                transfer_to = token_info.get("to_address", "")
+                amount_str = token_info.get("amount_str", "0")
+                decimals = int(token_info.get("decimals", 6))
+                amount = int(amount_str) / (10 ** decimals)
+
+                if transfer_to == to_address and abs(amount - expected_amount) < 0.01:
+                    return {"verified": True, "amount": amount, "tx_hash": tx_hash}
+
+            # Also check trc20TransferInfo array
+            for transfer in data.get("trc20TransferInfo", []):
+                transfer_to = transfer.get("to_address", "")
+                amount_str = transfer.get("amount_str", "0")
+                decimals = int(transfer.get("decimals", 6))
+                amount = int(amount_str) / (10 ** decimals)
+
+                if transfer_to == to_address and abs(amount - expected_amount) < 0.01:
+                    return {"verified": True, "amount": amount, "tx_hash": tx_hash}
+
+            return {"verified": False, "error": "No matching USDT transfer found"}
+    except Exception as e:
+        return {"verified": False, "error": str(e)}
 
 
 # ── Auth ────────────────────────────────────────────────────────────────────
@@ -268,8 +578,13 @@ def check_admin(request: Request):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-def get_user_tier(request: Request) -> str:
-    return request.headers.get("X-User-Tier", "free").lower()
+def get_user_email(request: Request) -> str:
+    """Extract user email from Open WebUI headers."""
+    return (
+        request.headers.get("X-User-Email", "") or
+        request.headers.get("X-Forwarded-Email", "") or
+        request.headers.get("Authorization", "").replace("Bearer ", "")
+    )
 
 
 # ── Public Routes ───────────────────────────────────────────────────────────
@@ -286,9 +601,11 @@ async def health():
 
 @app.get("/v1/models")
 async def list_models(request: Request):
+    user_email = get_user_email(request)
     data = []
     for mid, mcfg in facade_models.items():
         tier = get_model_tier(mid)
+        has_access = can_access_model(user_email, mid) if user_email else (tier == "free")
         data.append({
             "id": mid,
             "object": "model",
@@ -299,6 +616,7 @@ async def list_models(request: Request):
                 "meta": {
                     "description": mcfg["name"],
                     "tier": tier,
+                    "accessible": has_access,
                 }
             },
         })
@@ -310,15 +628,16 @@ async def chat_completions(request: Request):
     body = await request.json()
     requested_model = body.get("model", "")
     stream = body.get("stream", False)
+    user_email = get_user_email(request)
 
     facade = facade_models.get(requested_model)
     if not facade:
         raise HTTPException(status_code=404, detail=f"Model '{requested_model}' not found")
 
     tier = get_model_tier(requested_model)
-    user_tier = get_user_tier(request)
 
-    if tier == "paid" and user_tier not in ("paid", "admin"):
+    # Check subscription access
+    if tier != "free" and not can_access_model(user_email, requested_model):
         raise HTTPException(
             status_code=403,
             detail=json.dumps({
@@ -360,11 +679,222 @@ async def chat_completions(request: Request):
     raise HTTPException(status_code=503, detail=f"All providers failed for '{requested_model}'")
 
 
+# ── User Subscription Routes ────────────────────────────────────────────────
+
+@app.get("/api/packages")
+async def list_packages():
+    """Public: list active subscription packages."""
+    result = []
+    for pkg in sorted(packages.values(), key=lambda p: p.get("order", 99)):
+        if pkg.get("active", True):
+            result.append({
+                "id": pkg["id"],
+                "name": pkg["name"],
+                "tier": pkg.get("tier", "free"),
+                "description": pkg.get("description", ""),
+                "price_monthly": pkg.get("price_monthly", 0),
+                "price_yearly": pkg.get("price_yearly", 0),
+                "features": pkg.get("features", []),
+                "models": pkg.get("models", []),
+            })
+    return {"packages": result}
+
+
+@app.get("/api/subscription")
+async def get_subscription(request: Request):
+    """Get current user's subscription status."""
+    user_email = get_user_email(request)
+    if not user_email:
+        return {"subscription": {"package_id": "free", "tier": "free", "active": True}}
+    sub = get_user_subscription(user_email)
+    pkg = packages.get(sub.get("package_id", "free"), {})
+    return {
+        "subscription": sub,
+        "package": {
+            "name": pkg.get("name", "Free"),
+            "tier": pkg.get("tier", "free"),
+            "features": pkg.get("features", []),
+        }
+    }
+
+
+@app.post("/api/subscribe")
+async def subscribe(request: Request):
+    """User subscribes to a package via coupon or payment."""
+    body = await request.json()
+    user_email = body.get("email", "").strip().lower()
+    package_id = body.get("package_id", "").strip()
+    duration = body.get("duration", "monthly")  # "monthly" or "yearly"
+    coupon_code = body.get("coupon_code", "").strip().upper()
+    payment_method = body.get("payment_method", "")  # "binance_pay", "bep20", "trc20"
+    tx_hash = body.get("tx_hash", "")
+
+    if not user_email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    if package_id not in packages:
+        raise HTTPException(status_code=404, detail=f"Package '{package_id}' not found")
+
+    pkg = packages[package_id]
+    if not pkg.get("active", True):
+        raise HTTPException(status_code=400, detail="Package is not available")
+
+    price = pkg.get("price_yearly", 0) if duration == "yearly" else pkg.get("price_monthly", 0)
+    months = 12 if duration == "yearly" else 1
+
+    # ── Coupon path ──
+    if coupon_code:
+        coupon = coupons.get(coupon_code)
+        if not coupon:
+            raise HTTPException(status_code=404, detail="Invalid coupon code")
+        if not coupon.get("active", True):
+            raise HTTPException(status_code=400, detail="Coupon is no longer active")
+        if coupon.get("package_id") and coupon["package_id"] != package_id:
+            raise HTTPException(status_code=400, detail=f"Coupon is only valid for package '{coupon['package_id']}'")
+        if user_email in coupon.get("used_by", []):
+            raise HTTPException(status_code=400, detail="You have already used this coupon")
+        max_uses = coupon.get("max_uses", 1)
+        if max_uses > 0 and len(coupon.get("used_by", [])) >= max_uses:
+            raise HTTPException(status_code=400, detail="Coupon has reached maximum uses")
+
+        # Check coupon expiry
+        coupon_expires = coupon.get("expires_at", "")
+        if coupon_expires and datetime.fromisoformat(coupon_expires) < datetime.utcnow():
+            raise HTTPException(status_code=400, detail="Coupon has expired")
+
+        # Apply coupon
+        coupon_duration = coupon.get("duration", "monthly")
+        coupon_months = 12 if coupon_duration == "yearly" else coupon.get("months", 1)
+
+        coupon.setdefault("used_by", []).append(user_email)
+        save_coupons()
+
+        expires_at = (datetime.utcnow() + timedelta(days=coupon_months * 30)).isoformat()
+        subscriptions[user_email] = {
+            "package_id": package_id,
+            "tier": pkg.get("tier", "pro"),
+            "active": True,
+            "started_at": datetime.utcnow().isoformat(),
+            "expires_at": expires_at,
+            "payment_method": "coupon",
+            "coupon_code": coupon_code,
+            "duration": coupon_duration,
+        }
+        save_subscriptions()
+
+        payment_history.append({
+            "id": str(uuid.uuid4()),
+            "user_email": user_email,
+            "package_id": package_id,
+            "amount": 0,
+            "method": "coupon",
+            "coupon_code": coupon_code,
+            "status": "completed",
+            "created_at": datetime.utcnow().isoformat(),
+        })
+        save_payment_history()
+
+        return {
+            "status": "subscribed",
+            "package": pkg["name"],
+            "expires_at": expires_at,
+            "method": "coupon",
+        }
+
+    # ── Payment path ──
+    if not payment_method:
+        raise HTTPException(status_code=400, detail="Payment method or coupon code required")
+    if not tx_hash:
+        raise HTTPException(status_code=400, detail="Transaction hash/ID is required")
+
+    # Check if tx_hash already used
+    for ph in payment_history:
+        if ph.get("tx_hash") == tx_hash and ph.get("status") == "completed":
+            raise HTTPException(status_code=400, detail="This transaction has already been used")
+
+    # Verify payment
+    verification = {"verified": False, "error": "Unknown payment method"}
+    if payment_method == "binance_pay":
+        verification = await verify_binance_pay(tx_hash, price, user_email)
+    elif payment_method == "bep20":
+        verification = await verify_bep20(tx_hash, price)
+    elif payment_method == "trc20":
+        verification = await verify_trc20(tx_hash, price)
+
+    if not verification.get("verified"):
+        # Store as pending for manual review
+        payment_history.append({
+            "id": str(uuid.uuid4()),
+            "user_email": user_email,
+            "package_id": package_id,
+            "amount": price,
+            "method": payment_method,
+            "tx_hash": tx_hash,
+            "status": "pending",
+            "error": verification.get("error", ""),
+            "created_at": datetime.utcnow().isoformat(),
+        })
+        save_payment_history()
+        raise HTTPException(
+            status_code=402,
+            detail=json.dumps({
+                "error": "payment_pending",
+                "message": f"Payment verification pending: {verification.get('error', 'Could not verify automatically')}. It will be reviewed manually.",
+            })
+        )
+
+    # Payment verified
+    expires_at = (datetime.utcnow() + timedelta(days=months * 30)).isoformat()
+    subscriptions[user_email] = {
+        "package_id": package_id,
+        "tier": pkg.get("tier", "pro"),
+        "active": True,
+        "started_at": datetime.utcnow().isoformat(),
+        "expires_at": expires_at,
+        "payment_method": payment_method,
+        "tx_hash": tx_hash,
+        "duration": duration,
+    }
+    save_subscriptions()
+
+    payment_history.append({
+        "id": str(uuid.uuid4()),
+        "user_email": user_email,
+        "package_id": package_id,
+        "amount": price,
+        "method": payment_method,
+        "tx_hash": tx_hash,
+        "status": "completed",
+        "created_at": datetime.utcnow().isoformat(),
+    })
+    save_payment_history()
+
+    return {
+        "status": "subscribed",
+        "package": pkg["name"],
+        "expires_at": expires_at,
+        "method": payment_method,
+    }
+
+
+@app.get("/api/payment-info")
+async def get_payment_info():
+    """Public: get payment addresses (not API keys)."""
+    return {
+        "binance_uid": payment_settings.get("binance_uid", ""),
+        "bep20_address": payment_settings.get("bep20_address", ""),
+        "trc20_address": payment_settings.get("trc20_address", ""),
+        "methods": {
+            "binance_pay": bool(payment_settings.get("binance_uid")),
+            "bep20": bool(payment_settings.get("bep20_address")),
+            "trc20": bool(payment_settings.get("trc20_address")),
+        }
+    }
+
+
 # ── Admin: Provider CRUD ────────────────────────────────────────────────────
 
 @app.get("/admin/config")
 async def admin_get_config(request: Request):
-    """Get full config (providers + models)."""
     check_admin(request)
     return {
         "providers": providers,
@@ -374,27 +904,22 @@ async def admin_get_config(request: Request):
 
 @app.get("/admin/providers")
 async def admin_list_providers(request: Request):
-    """View provider health status."""
     check_admin(request)
     status = {}
     for pid, prov in providers.items():
         ps = provider_status.get(pid, {})
         keys = prov.get("api_keys", [])
         status[pid] = {
-            "name": prov.get("name", pid),
-            "base_url": prov.get("base_url", ""),
-            "key_count": len(keys),
-            "current_key_index": key_index.get(pid, 0),
+            "total_keys": len(keys),
             "failures": ps.get("failures", 0),
             "in_cooldown": ps.get("cooldown_until", 0) > time.time(),
-            "cooldown_remaining_s": max(0, round(ps.get("cooldown_until", 0) - time.time())),
+            "cooldown_remaining": max(0, ps.get("cooldown_until", 0) - time.time()),
         }
     return {"providers": status}
 
 
 @app.post("/admin/providers")
 async def admin_create_provider(request: Request):
-    """Create a new provider. Body: {id, name, base_url, api_keys: [...]}"""
     check_admin(request)
     body = await request.json()
     pid = body.get("id", "").strip()
@@ -417,29 +942,22 @@ async def admin_create_provider(request: Request):
 
 @app.put("/admin/providers/{provider_id}")
 async def admin_update_provider(provider_id: str, request: Request):
-    """Update provider. Body: any subset of {name, base_url, api_keys}"""
     check_admin(request)
     if provider_id not in providers:
         raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
 
     body = await request.json()
     prov = providers[provider_id]
-    if "name" in body:
-        prov["name"] = body["name"]
-    if "base_url" in body:
-        prov["base_url"] = body["base_url"]
-    if "api_keys" in body:
-        prov["api_keys"] = [k for k in body["api_keys"] if k.strip()]
-        key_index[provider_id] = 0  # Reset rotation
-
+    if "name" in body: prov["name"] = body["name"]
+    if "base_url" in body: prov["base_url"] = body["base_url"]
+    if "api_keys" in body: prov["api_keys"] = body["api_keys"]
     save_providers()
-    logger.info(f"Admin updated provider: {provider_id} ({len(prov.get('api_keys', []))} keys)")
-    return {"status": "updated", "provider": provider_id, "key_count": len(prov.get("api_keys", []))}
+    logger.info(f"Admin updated provider: {provider_id}")
+    return {"status": "updated", "provider": provider_id}
 
 
 @app.delete("/admin/providers/{provider_id}")
 async def admin_delete_provider(provider_id: str, request: Request):
-    """Delete a provider."""
     check_admin(request)
     if provider_id not in providers:
         raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
@@ -511,11 +1029,11 @@ async def admin_create_model(request: Request):
         raise HTTPException(status_code=400, detail="id and name are required")
     if model_id in facade_models:
         raise HTTPException(status_code=409, detail=f"Model '{model_id}' already exists")
-    if not body.get("backends"):
-        raise HTTPException(status_code=400, detail="At least one backend is required")
 
     tier = body.get("tier", "paid")
-    model = {"id": model_id, "name": name, "tier": tier, "backends": body["backends"]}
+    backends = body.get("backends", [])
+
+    model = {"id": model_id, "name": name, "tier": tier, "backends": backends}
     facade_models[model_id] = model
     model_tiers[model_id] = tier
     save_models()
@@ -532,18 +1050,11 @@ async def admin_edit_model(model_id: str, request: Request):
 
     body = await request.json()
     model = facade_models[model_id]
-
-    if "name" in body:
-        model["name"] = body["name"].strip()
-    if "tier" in body and body["tier"] in ("free", "paid"):
+    if "name" in body: model["name"] = body["name"]
+    if "tier" in body:
         model["tier"] = body["tier"]
         model_tiers[model_id] = body["tier"]
-    if "backends" in body:
-        if not body["backends"]:
-            raise HTTPException(status_code=400, detail="At least one backend is required")
-        model["backends"] = body["backends"]
-
-    facade_models[model_id] = model
+    if "backends" in body: model["backends"] = body["backends"]
     save_models()
     save_tiers()
     logger.info(f"Admin updated model: {model['name']} ({model_id})")
@@ -580,16 +1091,313 @@ async def admin_set_tier(model_id: str, request: Request):
     facade_models[model_id]["tier"] = new_tier
     save_tiers()
     save_models()
+    return {"model": model_id, "name": facade_models[model_id]["name"], "tier": new_tier}
 
-    name = facade_models[model_id]["name"]
-    return {"model": model_id, "name": name, "tier": new_tier}
+
+# ── Admin: Package CRUD ────────────────────────────────────────────────────
+
+@app.get("/admin/packages")
+async def admin_list_packages(request: Request):
+    check_admin(request)
+    return {"packages": list(packages.values())}
+
+
+@app.post("/admin/packages")
+async def admin_create_package(request: Request):
+    check_admin(request)
+    body = await request.json()
+    pkg_id = body.get("id", "").strip().lower()
+    if not pkg_id:
+        raise HTTPException(status_code=400, detail="id is required")
+    if pkg_id in packages:
+        raise HTTPException(status_code=409, detail=f"Package '{pkg_id}' already exists")
+
+    packages[pkg_id] = {
+        "id": pkg_id,
+        "name": body.get("name", pkg_id),
+        "tier": body.get("tier", "pro"),
+        "description": body.get("description", ""),
+        "models": body.get("models", []),
+        "price_monthly": float(body.get("price_monthly", 0)),
+        "price_yearly": float(body.get("price_yearly", 0)),
+        "features": body.get("features", []),
+        "active": body.get("active", True),
+        "order": body.get("order", len(packages)),
+    }
+    save_packages()
+    return {"status": "created", "package": packages[pkg_id]}
+
+
+@app.put("/admin/packages/{package_id}")
+async def admin_update_package(package_id: str, request: Request):
+    check_admin(request)
+    if package_id not in packages:
+        raise HTTPException(status_code=404, detail=f"Package '{package_id}' not found")
+
+    body = await request.json()
+    pkg = packages[package_id]
+    for key in ["name", "tier", "description", "models", "price_monthly", "price_yearly", "features", "active", "order"]:
+        if key in body:
+            if key in ("price_monthly", "price_yearly"):
+                pkg[key] = float(body[key])
+            else:
+                pkg[key] = body[key]
+    save_packages()
+    return {"status": "updated", "package": pkg}
+
+
+@app.delete("/admin/packages/{package_id}")
+async def admin_delete_package(package_id: str, request: Request):
+    check_admin(request)
+    if package_id not in packages:
+        raise HTTPException(status_code=404, detail=f"Package '{package_id}' not found")
+    if package_id == "free":
+        raise HTTPException(status_code=400, detail="Cannot delete the free package")
+
+    del packages[package_id]
+    save_packages()
+    return {"status": "deleted", "package_id": package_id}
+
+
+# ── Admin: Coupon CRUD ─────────────────────────────────────────────────────
+
+@app.get("/admin/coupons")
+async def admin_list_coupons(request: Request):
+    check_admin(request)
+    return {"coupons": list(coupons.values())}
+
+
+@app.post("/admin/coupons")
+async def admin_create_coupons(request: Request):
+    """Create single or bulk coupons."""
+    check_admin(request)
+    body = await request.json()
+
+    count = int(body.get("count", 1))
+    group = body.get("group", "").strip()
+    package_id = body.get("package_id", "")
+    duration = body.get("duration", "monthly")
+    months = int(body.get("months", 1))
+    max_uses = int(body.get("max_uses", 1))
+    prefix = body.get("prefix", "").strip().upper()
+    expires_at = body.get("expires_at", "")
+    active = body.get("active", True)
+
+    if package_id and package_id not in packages:
+        raise HTTPException(status_code=404, detail=f"Package '{package_id}' not found")
+
+    created = []
+    for _ in range(min(count, 1000)):  # Cap at 1000
+        code = (prefix + "-" if prefix else "") + generate_coupon_code()
+        while code in coupons:
+            code = (prefix + "-" if prefix else "") + generate_coupon_code()
+
+        coupon = {
+            "code": code,
+            "group": group or f"batch-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
+            "package_id": package_id,
+            "duration": duration,
+            "months": months,
+            "max_uses": max_uses,
+            "used_by": [],
+            "active": active,
+            "created_at": datetime.utcnow().isoformat(),
+            "expires_at": expires_at,
+        }
+        coupons[code] = coupon
+        created.append(code)
+
+    save_coupons()
+    return {"status": "created", "count": len(created), "codes": created, "group": group or created[0] if created else ""}
+
+
+@app.put("/admin/coupons/{coupon_code}")
+async def admin_update_coupon(coupon_code: str, request: Request):
+    check_admin(request)
+    code = coupon_code.upper()
+    if code not in coupons:
+        raise HTTPException(status_code=404, detail=f"Coupon '{code}' not found")
+
+    body = await request.json()
+    coupon = coupons[code]
+    for key in ["group", "package_id", "duration", "months", "max_uses", "active", "expires_at"]:
+        if key in body:
+            coupon[key] = body[key]
+    save_coupons()
+    return {"status": "updated", "coupon": coupon}
+
+
+@app.delete("/admin/coupons/{coupon_code}")
+async def admin_delete_coupon(coupon_code: str, request: Request):
+    check_admin(request)
+    code = coupon_code.upper()
+    if code not in coupons:
+        raise HTTPException(status_code=404, detail=f"Coupon '{code}' not found")
+    del coupons[code]
+    save_coupons()
+    return {"status": "deleted", "code": code}
+
+
+@app.delete("/admin/coupons/group/{group_name}")
+async def admin_delete_coupon_group(group_name: str, request: Request):
+    check_admin(request)
+    to_delete = [c for c, v in coupons.items() if v.get("group") == group_name]
+    for code in to_delete:
+        del coupons[code]
+    save_coupons()
+    return {"status": "deleted", "group": group_name, "count": len(to_delete)}
+
+
+@app.get("/admin/coupons/group/{group_name}")
+async def admin_get_coupon_group(group_name: str, request: Request):
+    check_admin(request)
+    group_coupons = [v for v in coupons.values() if v.get("group") == group_name]
+    return {"group": group_name, "coupons": group_coupons, "count": len(group_coupons)}
+
+
+# ── Admin: Payment Settings ────────────────────────────────────────────────
+
+@app.get("/admin/payment-settings")
+async def admin_get_payment_settings(request: Request):
+    check_admin(request)
+    return {"settings": payment_settings}
+
+
+@app.put("/admin/payment-settings")
+async def admin_update_payment_settings(request: Request):
+    check_admin(request)
+    body = await request.json()
+    for key in ["binance_uid", "binance_api_key", "binance_api_secret", "bep20_address", "trc20_address"]:
+        if key in body:
+            payment_settings[key] = body[key]
+    save_payment_settings()
+    return {"status": "updated", "settings": {
+        "binance_uid": payment_settings.get("binance_uid", ""),
+        "bep20_address": payment_settings.get("bep20_address", ""),
+        "trc20_address": payment_settings.get("trc20_address", ""),
+        "binance_api_configured": bool(payment_settings.get("binance_api_key")),
+    }}
+
+
+# ── Admin: Subscriptions & Payments ────────────────────────────────────────
+
+@app.get("/admin/subscriptions")
+async def admin_list_subscriptions(request: Request):
+    check_admin(request)
+    result = []
+    for email, sub in subscriptions.items():
+        pkg = packages.get(sub.get("package_id", ""), {})
+        result.append({
+            "email": email,
+            "package_id": sub.get("package_id"),
+            "package_name": pkg.get("name", "Unknown"),
+            "tier": sub.get("tier"),
+            "active": sub.get("active", False),
+            "expires_at": sub.get("expires_at"),
+            "payment_method": sub.get("payment_method"),
+            "started_at": sub.get("started_at"),
+        })
+    return {"subscriptions": result}
+
+
+@app.post("/admin/subscriptions/{user_email}/grant")
+async def admin_grant_subscription(user_email: str, request: Request):
+    """Admin manually grants a subscription."""
+    check_admin(request)
+    body = await request.json()
+    package_id = body.get("package_id", "pro")
+    months = int(body.get("months", 1))
+
+    if package_id not in packages:
+        raise HTTPException(status_code=404, detail=f"Package '{package_id}' not found")
+
+    pkg = packages[package_id]
+    expires_at = (datetime.utcnow() + timedelta(days=months * 30)).isoformat()
+    subscriptions[user_email.lower()] = {
+        "package_id": package_id,
+        "tier": pkg.get("tier", "pro"),
+        "active": True,
+        "started_at": datetime.utcnow().isoformat(),
+        "expires_at": expires_at,
+        "payment_method": "admin_grant",
+        "duration": "monthly" if months <= 1 else "yearly",
+    }
+    save_subscriptions()
+    return {"status": "granted", "email": user_email, "package": pkg["name"], "expires_at": expires_at}
+
+
+@app.delete("/admin/subscriptions/{user_email}")
+async def admin_revoke_subscription(user_email: str, request: Request):
+    check_admin(request)
+    email = user_email.lower()
+    if email in subscriptions:
+        del subscriptions[email]
+        save_subscriptions()
+    return {"status": "revoked", "email": user_email}
+
+
+@app.get("/admin/payments")
+async def admin_list_payments(request: Request):
+    check_admin(request)
+    return {"payments": payment_history}
+
+
+@app.post("/admin/payments/{payment_id}/approve")
+async def admin_approve_payment(payment_id: str, request: Request):
+    """Manually approve a pending payment."""
+    check_admin(request)
+    for ph in payment_history:
+        if ph.get("id") == payment_id and ph.get("status") == "pending":
+            ph["status"] = "completed"
+            ph["approved_at"] = datetime.utcnow().isoformat()
+            ph["approved_by"] = "admin"
+            save_payment_history()
+
+            # Activate subscription
+            user_email = ph.get("user_email", "")
+            package_id = ph.get("package_id", "pro")
+            if user_email and package_id in packages:
+                pkg = packages[package_id]
+                expires_at = (datetime.utcnow() + timedelta(days=30)).isoformat()
+                subscriptions[user_email] = {
+                    "package_id": package_id,
+                    "tier": pkg.get("tier", "pro"),
+                    "active": True,
+                    "started_at": datetime.utcnow().isoformat(),
+                    "expires_at": expires_at,
+                    "payment_method": ph.get("method"),
+                    "tx_hash": ph.get("tx_hash"),
+                }
+                save_subscriptions()
+
+            return {"status": "approved", "payment_id": payment_id}
+    raise HTTPException(status_code=404, detail="Payment not found or not pending")
+
+
+@app.post("/admin/payments/{payment_id}/reject")
+async def admin_reject_payment(payment_id: str, request: Request):
+    check_admin(request)
+    for ph in payment_history:
+        if ph.get("id") == payment_id and ph.get("status") == "pending":
+            ph["status"] = "rejected"
+            ph["rejected_at"] = datetime.utcnow().isoformat()
+            save_payment_history()
+            return {"status": "rejected", "payment_id": payment_id}
+    raise HTTPException(status_code=404, detail="Payment not found or not pending")
 
 
 @app.post("/admin/reload")
 async def admin_reload(request: Request):
     check_admin(request)
     load_all()
-    return {"status": "reloaded", "models": len(facade_models), "providers": len(providers)}
+    return {
+        "status": "reloaded",
+        "models": len(facade_models),
+        "providers": len(providers),
+        "packages": len(packages),
+        "coupons": len(coupons),
+        "subscriptions": len(subscriptions),
+    }
 
 
 if __name__ == "__main__":
