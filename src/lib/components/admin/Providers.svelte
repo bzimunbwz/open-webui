@@ -610,12 +610,11 @@
 														<button class="text-xs px-2 py-0.5 bg-gray-700 rounded hover:bg-gray-600 transition"
 															on:click={async () => {
 																try {
-																	// Quick test: hit /models with this key
-																	const headers: any = { 'Authorization': `Bearer ${key}` };
-																	const res = await fetch(`${provider.base_url.replace(/\/$/, '')}/models`, { headers });
-																	if (res.ok) toast.success(`Key #${i+1} is valid`);
-																	else toast.error(`Key #${i+1} returned ${res.status}`);
-																} catch { toast.error(`Key #${i+1} connection failed`); }
+																	// Test key via gateway proxy (avoids CORS)
+																	const res = await gw(`/admin/providers/${provider.id}/models`);
+																	const count = (res.data || res.models || []).length;
+																	toast.success(`Key #${i+1} works — ${count} models found`);
+																} catch (e) { toast.error(`Key #${i+1} test failed: ${e.message}`); }
 															}}>Test</button>
 														<button class="text-xs px-2 py-0.5 bg-gray-700 rounded hover:bg-gray-600 transition">Disable</button>
 														<button class="text-red-500 hover:text-red-400 transition"
