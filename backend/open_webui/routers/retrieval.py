@@ -1887,10 +1887,12 @@ async def process_web(
 
 
 def _split_keys(key_value: str) -> list[str]:
-    """Split a comma-separated API key string into individual keys, filtering blanks."""
+    """Split a comma-or-newline-separated API key string into individual keys, filtering blanks."""
     if not key_value:
         return []
-    return [k.strip() for k in key_value.split(',') if k.strip()]
+    # Support both newline-separated (one per line) and comma-separated keys
+    import re
+    return [k.strip() for k in re.split(r'[,\n\r]+', key_value) if k.strip()]
 
 
 async def _try_search_with_keys(keys: list[str], search_fn, *args, is_async=False):

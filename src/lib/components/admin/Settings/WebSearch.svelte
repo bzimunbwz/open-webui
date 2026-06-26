@@ -193,17 +193,15 @@
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Ollama Cloud API Key')}
+										{$i18n.t('Ollama Cloud API Key(s)')}
 									</div>
-
-									<div class="flex w-full">
-										<div class="flex-1">
-											<SensitiveInput
-												placeholder={$i18n.t('Enter Ollama Cloud API Key')}
-												bind:value={webConfig.OLLAMA_CLOUD_WEB_SEARCH_API_KEY}
-											/>
-										</div>
-									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
+										bind:value={webConfig.OLLAMA_CLOUD_WEB_SEARCH_API_KEY}
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'perplexity_search'}
@@ -230,17 +228,15 @@
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Perplexity API Key')}
+										{$i18n.t('Perplexity API Key(s)')}
 									</div>
-
-									<div class="flex w-full">
-										<div class="flex-1">
-											<SensitiveInput
-												placeholder={$i18n.t('Enter Perplexity API Key')}
-												bind:value={webConfig.PERPLEXITY_API_KEY}
-											/>
-										</div>
-									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
+										bind:value={webConfig.PERPLEXITY_API_KEY}
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'searxng'}
@@ -333,13 +329,16 @@
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Google PSE API Key')}
+										{$i18n.t('Google PSE API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Google PSE API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.GOOGLE_PSE_API_KEY}
-									/>
+									></textarea>
 								</div>
 								<div class="mt-1.5">
 									<div class=" self-center text-xs font-medium mb-1">
@@ -363,26 +362,32 @@
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Brave Search API Key')}
+										{$i18n.t('Brave Search API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Brave Search API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.BRAVE_SEARCH_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'brave_llm_context'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Brave Search API Key')}
+										{$i18n.t('Brave Search API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Brave Search API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.BRAVE_SEARCH_API_KEY}
-									/>
+									></textarea>
 								</div>
 								<div class="mt-1.5">
 									<div class=" self-center text-xs font-medium mb-1">
@@ -409,104 +414,128 @@
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Kagi Search API Key')}
+										{$i18n.t('Kagi Search API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Kagi Search API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.KAGI_SEARCH_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'mojeek'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Mojeek Search API Key')}
+										{$i18n.t('Mojeek Search API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Mojeek Search API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.MOJEEK_SEARCH_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'bocha'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Bocha Search API Key')}
+										{$i18n.t('Bocha Search API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Bocha Search API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.BOCHA_SEARCH_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'serpstack'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Serpstack API Key')}
+										{$i18n.t('Serpstack API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Serpstack API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.SERPSTACK_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'serper'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Serper API Key')}
+										{$i18n.t('Serper API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Serper API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.SERPER_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'serply'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Serply API Key')}
+										{$i18n.t('Serply API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Serply API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.SERPLY_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'tavily'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Tavily API Key')}
+										{$i18n.t('Tavily API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Tavily API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.TAVILY_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'searchapi'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('SearchApi API Key')}
+										{$i18n.t('SearchApi API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter SearchApi API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.SEARCHAPI_API_KEY}
-									/>
+									></textarea>
 								</div>
 								<div class="mt-1.5">
 									<div class=" self-center text-xs font-medium mb-1">
@@ -530,13 +559,16 @@
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('SerpApi API Key')}
+										{$i18n.t('SerpApi API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter SerpApi API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.SERPAPI_API_KEY}
-									/>
+									></textarea>
 								</div>
 								<div class="mt-1.5">
 									<div class=" self-center text-xs font-medium mb-1">
@@ -578,13 +610,16 @@
 
 								<div class="mt-2">
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Jina API Key')}
+										{$i18n.t('Jina API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Jina API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.JINA_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'bing'}
@@ -609,39 +644,48 @@
 
 								<div class="mt-2">
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Bing Search V7 Subscription Key')}
+										{$i18n.t('Bing Search V7 Subscription Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Bing Search V7 Subscription Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.BING_SEARCH_V7_SUBSCRIPTION_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'exa'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Exa API Key')}
+										{$i18n.t('Exa API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Exa API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.EXA_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'perplexity'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Perplexity API Key')}
+										{$i18n.t('Perplexity API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Perplexity API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.PERPLEXITY_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 
@@ -685,25 +729,31 @@
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Sougou Search API sID')}
+										{$i18n.t('Sougou Search API sID(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Sougou Search API sID')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.SOUGOU_API_SID}
-									/>
+									></textarea>
 								</div>
 							</div>
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Sougou Search API SK')}
+										{$i18n.t('Sougou Search API SK(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Sougou Search API SK')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.SOUGOU_API_SK}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'firecrawl'}
@@ -728,13 +778,16 @@
 
 								<div class="mt-2">
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Firecrawl API Key')}
+										{$i18n.t('Firecrawl API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Firecrawl API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.FIRECRAWL_API_KEY}
-									/>
+									></textarea>
 								</div>
 
 								<div class="mt-2">
@@ -777,13 +830,16 @@
 
 								<div class="mt-2">
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('External Web Search API Key')}
+										{$i18n.t('External Web Search API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter External Web Search API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.EXTERNAL_WEB_SEARCH_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'yandex'}
@@ -808,13 +864,16 @@
 
 								<div class="mt-2">
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Yandex Web Search API Key')}
+										{$i18n.t('Yandex Web Search API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Yandex Web Search API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.YANDEX_WEB_SEARCH_API_KEY}
-									/>
+									></textarea>
 								</div>
 
 								<div class="mb-2.5">
@@ -839,26 +898,32 @@
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('You.com API Key')}
+										{$i18n.t('You.com API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter You.com API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.YOUCOM_API_KEY}
-									/>
+									></textarea>
 								</div>
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'linkup'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Linkup API Key')}
+										{$i18n.t('Linkup API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Linkup API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.LINKUP_API_KEY}
-									/>
+									></textarea>
 								</div>
 
 								<div class="mt-2">
@@ -1136,13 +1201,16 @@
 
 							<div class="mt-2">
 								<div class=" self-center text-xs font-medium mb-1">
-									{$i18n.t('Firecrawl API Key')}
+									{$i18n.t('Firecrawl API Key(s)')}
 								</div>
+								<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-								<SensitiveInput
-									placeholder={$i18n.t('Enter Firecrawl API Key')}
+								<textarea
+									class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+									rows="3"
+									placeholder={$i18n.t('Enter API keys, one per line')}
 									bind:value={webConfig.FIRECRAWL_API_KEY}
-								/>
+								></textarea>
 							</div>
 						</div>
 					{:else if webConfig.WEB_LOADER_ENGINE === 'tavily'}
@@ -1168,13 +1236,16 @@
 							{#if webConfig.WEB_SEARCH_ENGINE !== 'tavily'}
 								<div class="mt-2">
 									<div class=" self-center text-xs font-medium mb-1">
-										{$i18n.t('Tavily API Key')}
+										{$i18n.t('Tavily API Key(s)')}
 									</div>
+									<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-									<SensitiveInput
-										placeholder={$i18n.t('Enter Tavily API Key')}
+									<textarea
+										class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+										rows="3"
+										placeholder={$i18n.t('Enter API keys, one per line')}
 										bind:value={webConfig.TAVILY_API_KEY}
-									/>
+									></textarea>
 								</div>
 							{/if}
 						</div>
@@ -1200,13 +1271,16 @@
 
 							<div class="mt-2">
 								<div class=" self-center text-xs font-medium mb-1">
-									{$i18n.t('External Web Loader API Key')}
+									{$i18n.t('External Web Loader API Key(s)')}
 								</div>
+								<div class="text-[11px] text-gray-500 mb-1">{$i18n.t('One key per line. Keys are tried in order as fallback.')}</div>
 
-								<SensitiveInput
-									placeholder={$i18n.t('Enter External Web Loader API Key')}
+								<textarea
+									class="w-full rounded-lg py-2 px-4 text-sm font-mono bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden resize-y"
+									rows="3"
+									placeholder={$i18n.t('Enter API keys, one per line')}
 									bind:value={webConfig.EXTERNAL_WEB_LOADER_API_KEY}
-								/>
+								></textarea>
 							</div>
 						</div>
 					{/if}
