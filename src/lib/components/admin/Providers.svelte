@@ -71,16 +71,26 @@
 	// ── API helpers ───────────────────────────────────────────────────
 
 	async function gw(path: string, method = 'GET', body?: any) {
-		const res = await fetch(`${GATEWAY_URL}${path}`, {
-			method,
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${GATEWAY_ADMIN_KEY}`
-			},
-			...(body ? { body: JSON.stringify(body) } : {})
-		});
-		if (!res.ok) throw new Error(await res.text());
-		return res.json();
+		let res: Response;
+		try {
+			res = await fetch(`${GATEWAY_URL}${path}`, {
+				method,
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${GATEWAY_ADMIN_KEY}`
+				},
+				...(body ? { body: JSON.stringify(body) } : {})
+			});
+		} catch (e: any) {
+			throw new Error(`Cannot reach gateway at ${GATEWAY_URL} — check the URL and that the service is running`);
+		}
+		const text = await res.text();
+		if (!res.ok) throw new Error(`${res.status}: ${text}`);
+		try {
+			return JSON.parse(text);
+		} catch {
+			throw new Error(`Gateway returned non-JSON (status ${res.status}). Got: ${text.substring(0, 200)}`);
+		}
 	}
 
 	// ── Load ──────────────────────────────────────────────────────────
@@ -246,10 +256,15 @@
 	// ── Gateway config ────────────────────────────────────────────────
 
 	function saveGatewayConfig() {
+		// Normalize URL: add https:// if missing, remove trailing slash
+		let url = GATEWAY_URL.trim();
+		if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+			url = 'https://' + url;
+		}
+		GATEWAY_URL = url.replace(/\/+$/, '');
 		localStorage.setItem('gateway_url', GATEWAY_URL);
 		localStorage.setItem('gateway_admin_key', GATEWAY_ADMIN_KEY);
 		showGatewayConfig = false;
-		toast.success('Connected');
 		loadAll();
 	}
 
