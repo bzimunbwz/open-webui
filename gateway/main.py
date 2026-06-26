@@ -760,6 +760,15 @@ def seed_zai_models():
         save_tiers()
         logger.info(f"Seeded {added} Z.AI facade models ({len(ZAI_MODELS)} total)")
 
+    # Ensure all Z.AI models appear in provider_models_cache (Z.AI API only returns 8)
+    all_zai_model_ids = [m["model"] for m in ZAI_MODELS]
+    existing_cache = provider_models_cache.get("zai", [])
+    merged = list(dict.fromkeys(existing_cache + all_zai_model_ids))  # dedupe, preserve order
+    if len(merged) > len(existing_cache):
+        provider_models_cache["zai"] = merged
+        save_provider_models_cache()
+        logger.info(f"Expanded Z.AI model cache: {len(existing_cache)} → {len(merged)}")
+
 
 def seed_llm7_models():
     """Ensure LLM7 provider and facade models exist with correct tiers."""
@@ -830,6 +839,15 @@ def seed_llm7_models():
         save_models()
         save_tiers()
         logger.info(f"Seeded {added} LLM7 facade models ({len(LLM7_MODELS)} total)")
+
+    # Ensure all LLM7 models appear in provider_models_cache
+    all_llm7_model_ids = [m["model"] for m in LLM7_MODELS]
+    existing_cache = provider_models_cache.get("llm7", [])
+    merged = list(dict.fromkeys(existing_cache + all_llm7_model_ids))
+    if len(merged) > len(existing_cache):
+        provider_models_cache["llm7"] = merged
+        save_provider_models_cache()
+        logger.info(f"Expanded LLM7 model cache: {len(existing_cache)} → {len(merged)}")
 
 
 async def auto_sync_provider_models():
@@ -1344,11 +1362,32 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
                 if m.get("id") and m.get("available", True) is not False
             ]
             if model_ids:
-                provider_models_cache[provider_id] = model_ids
+                # Merge with existing cache (some models like Z.AI free/vision aren't in /models but work)
+                existing = provider_models_cache.get(provider_id, [])
+                merged = list(dict.fromkeys(model_ids + existing))
+                provider_models_cache[provider_id] = merged
                 save_provider_models_cache()
-                logger.info(f"Cached {len(model_ids)} models for provider {provider_id}")
+                logger.info(f"Cached {len(merged)} models for provider {provider_id} ({len(model_ids)} from API)")
+
+            # Also merge seeded/cached models into the response so admin UI shows all
+            cached_ids = set(m.get("id", "") for m in data.get("data", []))
+            for extra_id in provider_models_cache.get(provider_id, []):
+                if extra_id and extra_id not in cached_ids:
+                    data.setdefault("data", []).append({
+                        "id": extra_id,
+                        "object": "model",
+                        "created": 1700000000,
+                        "owned_by": provider_id,
+                    })
             return data
     except Exception as e:
+        # If API fails, return cached models instead of error
+        cached = provider_models_cache.get(provider_id, [])
+        if cached:
+            return {"object": "list", "data": [
+                {"id": mid, "object": "model", "created": 1700000000, "owned_by": provider_id}
+                for mid in cached
+            ]}
         raise HTTPException(status_code=502, detail=f"Failed to fetch models from {base_url}: {str(e)}")
 
 
