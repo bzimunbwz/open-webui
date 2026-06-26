@@ -1,0 +1,92 @@
+{
+  "providers": {
+    "freemodel": {
+      "name": "FreeModel.dev",
+      "base_url": "https://api.freemodel.dev/v1",
+      "api_key": "${FREEMODEL_API_KEY}"
+    },
+    "llm7": {
+      "name": "LLM7.io",
+      "base_url": "https://api.llm7.io/v1",
+      "api_key": "${LLM7_API_KEY}"
+    },
+    "zai": {
+      "name": "Z.AI",
+      "base_url": "https://api.z.ai/api/paas/v4/",
+      "api_key": "${ZAI_API_KEY}"
+    },
+    "freellmapi": {
+      "name": "FreeLLMAPI",
+      "base_url": "${FREELLMAPI_BASE_URL}",
+      "api_key": "${FREELLMAPI_API_KEY}"
+    }
+  },
+
+  "facade_models": [
+    {
+      "id": "claude-opus-4.8",
+      "name": "Claude Opus 4.8",
+      "tier": "paid",
+      "backends": [
+        { "provider": "freemodel", "model": "claude-opus-4-8" },
+        { "provider": "llm7", "model": "claude-opus-4-8" },
+        { "provider": "zai", "model": "claude-opus-4-8" },
+        { "provider": "freellmapi", "model": "claude-opus-4-8" }
+      ]
+    },
+    {
+      "id": "claude-opus-4.7",
+      "name": "Claude Opus 4.7",
+      "tier": "paid",
+      "backends": [
+        { "provider": "freemodel", "model": "claude-opus-4-7" },
+        { "provider": "llm7", "model": "claude-opus-4-7" },
+        { "provider": "zai", "model": "claude-opus-4-7" },
+        { "provider": "freellmapi", "model": "claude-opus-4-7" }
+      ]
+    },
+    {
+      "id": "claude-sonnet-4.6",
+      "name": "Claude Sonnet 4.6",
+      "tier": "paid",
+      "backends": [
+        { "provider": "freemodel", "model": "claude-sonnet-4-6" },
+        { "provider": "llm7", "model": "claude-sonnet-4-6" },
+        { "provider": "freellmapi", "model": "claude-sonnet-4-6" },
+        { "provider": "zai", "model": "claude-sonnet-4-6" }
+      ]
+    },
+    {
+      "id": "chatgpt-codex-5.5",
+      "name": "ChatGPT Codex 5.5",
+      "tier": "paid",
+      "backends": [
+        { "provider": "freemodel", "model": "gpt-codex-5.5" },
+        { "provider": "llm7", "model": "gpt-codex-5.5" },
+        { "provider": "zai", "model": "gpt-codex-5.5" },
+        { "provider": "freellmapi", "model": "gpt-codex-5.5" }
+      ]
+    },
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o",
+      "tier": "paid",
+      "backends": [
+        { "provider": "freemodel", "model": "gpt-4o" },
+        { "provider": "llm7", "model": "gpt-4o" },
+        { "provider": "freellmapi", "model": "gpt-4o" },
+        { "provider": "zai", "model": "gpt-4o" }
+      ]
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "name": "Gemini 2.5 Pro",
+      "tier": "paid",
+      "backends": [
+        { "provider": "freemodel", "model": "gemini-2.5-pro" },
+        { "provider": "llm7", "model": "gemini-2.5-pro" },
+        { "provider": "freellmapi", "model": "gemini-2.5-pro" }
+      ]
+    }
+  ]
+}

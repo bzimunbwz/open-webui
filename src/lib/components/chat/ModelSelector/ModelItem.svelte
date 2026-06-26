@@ -34,12 +34,12 @@
 	const FREE_PROVIDERS = ['freellmapi', 'freemodel.dev', 'freemodel', 'llm7', 'llm7.io'];
 
 	function getModelTier(model: any): 'free' | 'paid' {
-		const id = (model?.id ?? '').toLowerCase();
-		const ownedBy = (model?.owned_by ?? '').toLowerCase();
-		const connectionName = (model?.connection?.name ?? '').toLowerCase();
-		const connectionUrl = (model?.connection?.url ?? '').toLowerCase();
+		// 1. Check gateway-provided tier in model info meta
+		const metaTier = (model?.info?.meta?.tier ?? '').toLowerCase();
+		if (metaTier === 'free') return 'free';
+		if (metaTier === 'paid' || metaTier === 'premium') return 'paid';
 
-		// Check model tags for explicit free/paid
+		// 2. Check model tags for explicit free/paid
 		const tags = model?.tags ?? [];
 		for (const tag of tags) {
 			const tagName = (tag?.name ?? '').toLowerCase();
@@ -47,7 +47,10 @@
 			if (tagName === 'paid' || tagName === 'premium') return 'paid';
 		}
 
-		// Check if the model comes from a known free provider
+		// 3. Check if the model comes from a known free provider
+		const ownedBy = (model?.owned_by ?? '').toLowerCase();
+		const connectionName = (model?.connection?.name ?? '').toLowerCase();
+		const connectionUrl = (model?.connection?.url ?? '').toLowerCase();
 		for (const provider of FREE_PROVIDERS) {
 			if (ownedBy.includes(provider) || connectionName.includes(provider) || connectionUrl.includes(provider)) {
 				return 'free';
