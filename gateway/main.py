@@ -605,11 +605,21 @@ def binance_http_client(timeout: float = 15.0) -> httpx.AsyncClient:
 
 
 async def verify_binance_pay(tx_id: str, expected_amount: float, user_email: str) -> dict:
-    """Verify payment via Binance Pay personal account API."""
+    """Verify a payment via the PERSONAL Binance Pay account API.
+
+    Confirms that a transaction in the account's Binance Pay history matches BOTH
+    the transaction number the user submitted AND the expected amount. Uses the
+    personal-account endpoint GET /sapi/v1/pay/transactions (Pay Trade History) —
+    this is NOT the merchant / sub-merchant API.
+    """
     api_key = payment_settings.get("binance_api_key", "")
     api_secret = payment_settings.get("binance_api_secret", "")
     if not api_key or not api_secret:
         return {"verified": False, "error": "Binance API not configured"}
+
+    tx_id = (tx_id or "").strip()
+    if not tx_id:
+        return {"verified": False, "error": "Transaction number required"}
 
     timestamp = int(time.time() * 1000)
     params = f"timestamp={timestamp}&recvWindow=60000"
@@ -618,23 +628,58 @@ async def verify_binance_pay(tx_id: str, expected_amount: float, user_email: str
     url = f"https://api.binance.com/sapi/v1/pay/transactions?{params}&signature={signature}"
     headers = {"X-MBX-APIKEY": api_key}
 
+    def _tx_ids(tx: dict) -> set:
+        # Identifiers a user can copy from a personal Binance Pay transfer
+        return {
+            str(tx.get(k, "")).strip()
+            for k in ("transactionId", "orderId", "id", "tranId")
+            if tx.get(k)
+        }
+
     try:
         async with binance_http_client(15) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
-                return {"verified": False, "error": f"Binance API returned {resp.status_code}"}
+                try:
+                    detail = resp.json()
+                except Exception:
+                    detail = resp.text[:200]
+                return {"verified": False, "error": f"Binance API returned {resp.status_code}: {detail}"}
+
             data = resp.json()
-            transactions = data.get("data", [])
+            transactions = data.get("data", []) or []
 
+            wrong_amount = None
             for tx in transactions:
-                tx_amount = float(tx.get("amount", 0))
-                tx_status = tx.get("status", "")
-                order_id = tx.get("orderId", "")
+                if tx_id not in _tx_ids(tx):
+                    continue  # transaction number must match
 
-                if tx_status == "SUCCESS" and abs(tx_amount - expected_amount) < 0.01:
-                    return {"verified": True, "tx": tx, "order_id": order_id}
+                # amounts may be signed (negative for payer); compare magnitude
+                tx_amount = abs(float(tx.get("amount", 0) or 0))
+                status = str(tx.get("status", "") or tx.get("orderStatus", "")).upper()
+                if status and status not in ("SUCCESS", "PAY_SUCCESS", "COMPLETED"):
+                    return {"verified": False, "error": f"Transaction {tx_id} status is {status}, not successful"}
 
-            return {"verified": False, "error": "No matching transaction found"}
+                if abs(tx_amount - expected_amount) < 0.01:
+                    return {
+                        "verified": True,
+                        "tx": tx,
+                        "transaction_id": tx.get("transactionId") or tx.get("orderId"),
+                        "order_id": tx.get("orderId", ""),
+                        "amount": tx_amount,
+                    }
+                wrong_amount = tx_amount  # id matched but amount did not
+
+            if wrong_amount is not None:
+                return {
+                    "verified": False,
+                    "error": (f"Transaction {tx_id} found but amount {wrong_amount} "
+                              f"does not match expected {expected_amount}"),
+                }
+            return {
+                "verified": False,
+                "error": f"No Binance Pay transaction matching number {tx_id} found in account history",
+            }
     except Exception as e:
         return {"verified": False, "error": str(e)}
 
