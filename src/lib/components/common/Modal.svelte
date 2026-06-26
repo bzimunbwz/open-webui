@@ -7,7 +7,7 @@
 	export let show = true;
 	export let size = 'md';
 	export let containerClassName = 'p-3';
-	export let className = 'bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm rounded-4xl';
+	export let className = 'bg-white/95 dark:bg-[#232323]/95 backdrop-blur-sm rounded-4xl';
 
 	let modalElement = null;
 	let mounted = false;
@@ -131,7 +131,7 @@
 		<div
 			class="m-auto max-w-full {sizeToWidth(size)} {size !== 'full'
 				? 'mx-2'
-				: ''} shadow-3xl min-h-fit scrollbar-hidden {className} border border-white dark:border-gray-850"
+				: ''} shadow-3xl min-h-fit scrollbar-hidden {className} border border-gray-200 dark:border-white/[0.08]"
 			in:flyAndScale
 			on:mousedown={(e) => {
 				e.stopPropagation();

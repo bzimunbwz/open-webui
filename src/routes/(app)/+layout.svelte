@@ -316,9 +316,10 @@
 		};
 		setupKeyboardShortcuts();
 
-		if ($user?.role === 'admin' && ($settings?.showChangelog ?? true)) {
-			showChangelog.set($settings?.version !== $config.version);
-		}
+		// Changelog popup disabled for claudesk.pro
+		// if ($user?.role === 'admin' && ($settings?.showChangelog ?? true)) {
+		// 	showChangelog.set($settings?.version !== $config.version);
+		// }
 
 		if ($user?.role === 'admin' || ($user?.permissions?.chat?.temporary ?? true)) {
 			if ($page.url.searchParams.get('temporary-chat') === 'true') {
@@ -330,20 +331,18 @@
 			}
 		}
 
-		// Check for version updates
-		if ($user?.role === 'admin' && $config?.features?.enable_version_update_check) {
-			// Check if the user has dismissed the update toast in the last 24 hours
-			if (localStorage.dismissedUpdateToast) {
-				const dismissedUpdateToast = new Date(Number(localStorage.dismissedUpdateToast));
-				const now = new Date();
-
-				if (now - dismissedUpdateToast > 24 * 60 * 60 * 1000) {
-					checkForVersionUpdates();
-				}
-			} else {
-				checkForVersionUpdates();
-			}
-		}
+		// Version update check disabled for claudesk.pro
+		// if ($user?.role === 'admin' && $config?.features?.enable_version_update_check) {
+		// 	if (localStorage.dismissedUpdateToast) {
+		// 		const dismissedUpdateToast = new Date(Number(localStorage.dismissedUpdateToast));
+		// 		const now = new Date();
+		// 		if (now - dismissedUpdateToast > 24 * 60 * 60 * 1000) {
+		// 			checkForVersionUpdates();
+		// 		}
+		// 	} else {
+		// 		checkForVersionUpdates();
+		// 	}
+		// }
 		// Persist showControls: track open/close state separately from saved size
 		// chatControlsSize always retains the last width for openPane()
 		await showControls.set(!$mobile ? localStorage.showControls === 'true' : false);
@@ -377,9 +376,11 @@
 </script>
 
 <SettingsModal bind:show={$showSettings} />
-<ChangelogModal bind:show={$showChangelog} />
+<!-- Changelog modal disabled for claudesk.pro -->
+<!-- <ChangelogModal bind:show={$showChangelog} /> -->
 
-{#if version && compareVersion(version.latest, version.current) && ($settings?.showUpdateToast ?? true)}
+<!-- Update toast disabled for claudesk.pro -->
+<!-- {#if version && compareVersion(version.latest, version.current) && ($settings?.showUpdateToast ?? true)}
 	<div class=" absolute bottom-8 right-8 z-50" in:fade={{ duration: 100 }}>
 		<UpdateInfoToast
 			{version}
@@ -389,12 +390,12 @@
 			}}
 		/>
 	</div>
-{/if}
+{/if} -->
 
 {#if $user}
 	<div class="app relative">
 		<div
-			class=" text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 h-screen max-h-[100dvh] overflow-auto flex flex-row justify-end"
+			class=" text-gray-700 dark:text-gray-100 bg-white dark:bg-[#1a1a1a] h-screen max-h-[100dvh] overflow-auto flex flex-row justify-end"
 		>
 			{#if !['user', 'admin'].includes($user?.role)}
 				<AccountPending />

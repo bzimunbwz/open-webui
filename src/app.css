@@ -723,8 +723,8 @@ body {
 }
 
 .dark body {
-	background: #171717;
-	color: #eee;
+	background: #1a1a1a;
+	color: #e8e8e8;
 }
 
 /* Position the handle relative to each LI */
@@ -838,4 +838,326 @@ body {
 
 #note-content-container .ProseMirror {
 	padding-bottom: 2rem; /* space for the bottom toolbar */
+}
+
+/* ==========================================================================
+   claudesk.pro Admin Theme — Claude-inspired warm dark UI
+   ========================================================================== */
+
+/* ── Admin panel wrapper ── */
+.dark .admin-panel {
+	background: #1e1e1e;
+}
+
+/* ── Top navigation bar ── */
+.dark .admin-nav {
+	background: rgba(30, 30, 30, 0.95);
+	border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dark .admin-nav-tab {
+	font-size: 0.8125rem;
+	letter-spacing: 0.01em;
+}
+
+.dark .admin-nav-tab-active {
+	background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Settings sidebar tabs ── */
+.dark #admin-settings-tabs-container {
+	padding-top: 0.5rem;
+}
+
+.dark #admin-settings-tabs-container > a {
+	border-radius: 0.5rem;
+	padding: 0.4rem 0.5rem;
+	font-size: 0.8125rem;
+	gap: 0.5rem;
+	transition: all 0.15s ease;
+	color: #8b8b8b;
+}
+
+.dark #admin-settings-tabs-container > a:hover {
+	background: rgba(255, 255, 255, 0.06);
+	color: #c4c4c4;
+}
+
+/* Active settings tab — subtle warm highlight like Claude */
+.dark #admin-settings-tabs-container > a:not([class*='text-gray-300']):not([class*='text-gray-600']) {
+	background: rgba(255, 255, 255, 0.08);
+	color: #ffffff;
+	font-weight: 600;
+}
+
+/* ── Settings search bar ── */
+.dark #settings-search {
+	background: rgba(255, 255, 255, 0.05) !important;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 0.5rem;
+	margin-bottom: 0.25rem;
+}
+
+.dark #settings-search input {
+	color: #d4d4d4;
+}
+
+.dark #settings-search input::placeholder {
+	color: #666;
+}
+
+/* ── Content area form sections ── */
+.dark .admin-panel input[type='text'],
+.dark .admin-panel input[type='url'],
+.dark .admin-panel input[type='number'],
+.dark .admin-panel input[type='password'],
+.dark .admin-panel input[type='email'],
+.dark .admin-panel input[type='search'],
+.dark .admin-panel textarea,
+.dark .admin-panel select {
+	background: #2a2a2a !important;
+	border: 1px solid rgba(255, 255, 255, 0.08) !important;
+	border-radius: 0.5rem !important;
+	color: #d4d4d4 !important;
+	transition: border-color 0.15s ease;
+}
+
+.dark .admin-panel input:focus,
+.dark .admin-panel textarea:focus,
+.dark .admin-panel select:focus {
+	border-color: rgba(255, 255, 255, 0.2) !important;
+	outline: none !important;
+	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.05) !important;
+}
+
+.dark .admin-panel input::placeholder,
+.dark .admin-panel textarea::placeholder {
+	color: #555 !important;
+}
+
+/* ── Toggle switches — match Claude's blue accent ── */
+.dark .admin-panel button[role='switch'][aria-checked='true'],
+.dark .admin-panel .toggle-active {
+	background-color: #4a8fe2 !important;
+}
+
+/* ── Info/callout boxes — subtle dark background like Claude ── */
+.dark .admin-panel .bg-gray-50,
+.dark .admin-panel .dark\:bg-gray-850 {
+	background: rgba(255, 255, 255, 0.03) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06);
+	border-radius: 0.5rem;
+}
+
+/* ── Buttons ── */
+.dark .admin-panel button:not([role='switch']) {
+	transition: all 0.15s ease;
+}
+
+/* Primary action buttons */
+.dark .admin-panel .bg-black,
+.dark .admin-panel .dark\:bg-white {
+	background: #d4d4d4 !important;
+	color: #1e1e1e !important;
+	border-radius: 0.5rem;
+	font-weight: 500;
+}
+
+.dark .admin-panel .bg-black:hover,
+.dark .admin-panel .dark\:bg-white:hover {
+	background: #e4e4e4 !important;
+}
+
+/* ── Section headers ── */
+.dark .admin-panel .text-sm.font-bold,
+.dark .admin-panel .font-medium {
+	color: #e8e8e8;
+}
+
+/* ── Subtle dividers ── */
+.dark .admin-panel hr,
+.dark .admin-panel .border-gray-100,
+.dark .admin-panel .dark\:border-gray-850 {
+	border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* ── Links — warm accent ── */
+.dark .admin-panel a:not(.admin-nav-tab):not(#admin-settings-tabs-container a) {
+	color: #7ab3e0;
+}
+
+.dark .admin-panel a:not(.admin-nav-tab):not(#admin-settings-tabs-container a):hover {
+	color: #99c8ed;
+}
+
+/* ── Dropdown menus ── */
+.dark .admin-panel .bg-white {
+	background: #2a2a2a !important;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 0.5rem;
+}
+
+/* ── Card-like containers ── */
+.dark .admin-panel .rounded-lg,
+.dark .admin-panel .rounded-xl {
+	border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Scrollbar styling for admin ── */
+.dark .admin-panel ::-webkit-scrollbar {
+	width: 6px;
+}
+
+.dark .admin-panel ::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.dark .admin-panel ::-webkit-scrollbar-thumb {
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 3px;
+}
+
+.dark .admin-panel ::-webkit-scrollbar-thumb:hover {
+	background: rgba(255, 255, 255, 0.18);
+}
+
+/* ── User Settings modal styling (same Claude-like warmth) ── */
+.dark #settings-tabs-container {
+	padding-top: 0.25rem;
+}
+
+.dark #settings-tabs-container > button,
+.dark #settings-tabs-container > a {
+	border-radius: 0.5rem !important;
+	padding: 0.4rem 0.625rem !important;
+	font-size: 0.8125rem;
+	transition: all 0.15s ease;
+}
+
+.dark #settings-tabs-container > button:not([class*='text-gray-300']):not([class*='text-gray-600']),
+.dark #settings-tabs-container > a:not([class*='text-gray-300']):not([class*='text-gray-600']) {
+	background: rgba(255, 255, 255, 0.08) !important;
+	color: #ffffff !important;
+	font-weight: 600;
+}
+
+.dark #settings-tabs-container > button:hover,
+.dark #settings-tabs-container > a:hover {
+	background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark #settings-search {
+	background: rgba(255, 255, 255, 0.05) !important;
+	border: 1px solid rgba(255, 255, 255, 0.08) !important;
+	border-radius: 0.5rem !important;
+}
+
+/* ── Modal backdrop and container ── */
+.dark .modal-content,
+.dark [class*='bg-white'][class*='dark:bg-gray-900'] {
+	background: #232323 !important;
+}
+
+/* ── Overall warm tone adjustments ── */
+.dark .admin-panel .text-gray-500 {
+	color: #8b8b8b !important;
+}
+
+.dark .admin-panel .text-gray-400 {
+	color: #777 !important;
+}
+
+.dark .admin-panel .dark\:text-gray-300 {
+	color: #b0b0b0 !important;
+}
+
+/* ── Badge / pill styling ── */
+.dark .admin-panel .bg-blue-500\/20,
+.dark .admin-panel .bg-blue-100 {
+	background: rgba(74, 143, 226, 0.15) !important;
+	color: #7ab3e0 !important;
+}
+
+/* ── Table styling (Users, Analytics, etc.) ── */
+.dark .admin-panel table {
+	border-collapse: separate;
+	border-spacing: 0;
+}
+
+.dark .admin-panel thead th {
+	background: rgba(255, 255, 255, 0.03) !important;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+	color: #8b8b8b !important;
+	font-size: 0.75rem;
+	font-weight: 500;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.dark .admin-panel tbody tr {
+	border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+	transition: background 0.1s ease;
+}
+
+.dark .admin-panel tbody tr:hover {
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.dark .admin-panel td {
+	border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+/* ── Info/callout boxes with icon — like Claude's sandbox notice ── */
+.dark .admin-panel .rounded-lg[class*='bg-gray'],
+.dark .admin-panel .rounded-xl[class*='bg-gray'] {
+	background: rgba(255, 255, 255, 0.03) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* ── Select/dropdown elements — refined ── */
+.dark .admin-panel select {
+	appearance: none;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+	background-repeat: no-repeat !important;
+	background-position: right 0.75rem center !important;
+	padding-right: 2rem !important;
+}
+
+/* ── "Add" / secondary action buttons — match Claude's outlined style ── */
+.dark .admin-panel button[class*='border'] {
+	border-color: rgba(255, 255, 255, 0.12) !important;
+	color: #d4d4d4 !important;
+}
+
+.dark .admin-panel button[class*='border']:hover {
+	border-color: rgba(255, 255, 255, 0.2) !important;
+	background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* ── Section titles — bold, clean like Claude ── */
+.dark .admin-panel .text-base.font-bold,
+.dark .admin-panel .text-lg.font-bold,
+.dark .admin-panel .font-semibold {
+	color: #f0f0f0 !important;
+	letter-spacing: -0.01em;
+}
+
+/* ── Description/helper text — muted warm gray ── */
+.dark .admin-panel .text-xs.text-gray-500,
+.dark .admin-panel .text-sm.text-gray-500,
+.dark .admin-panel .dark\:text-gray-500 {
+	color: #7a7a7a !important;
+}
+
+/* ── Dividers within admin content ── */
+.dark .admin-panel hr {
+	border-color: rgba(255, 255, 255, 0.06) !important;
+	margin-top: 1rem;
+	margin-bottom: 1rem;
+}
+
+/* ── Consistent spacing for form groups ── */
+.dark .admin-panel .space-y-3 > * {
+	padding-top: 0.125rem;
+	padding-bottom: 0.125rem;
 }

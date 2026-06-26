@@ -288,18 +288,19 @@
 <div class="flex flex-col lg:flex-row w-full h-full pb-2 lg:space-x-4">
 	<div
 		id="admin-settings-tabs-container"
-		class="tabs mx-[16px] lg:mx-0 lg:px-[16px] flex flex-row overflow-x-auto gap-2.5 max-w-full lg:gap-1 lg:flex-col lg:flex-none lg:w-50 dark:text-gray-200 text-sm font-medium text-left scrollbar-none"
+		class="tabs mx-[16px] lg:mx-0 lg:px-[16px] flex flex-row overflow-x-auto gap-2.5 max-w-full lg:gap-0.5 lg:flex-col lg:flex-none lg:w-52 dark:text-gray-200 text-sm font-medium text-left scrollbar-none"
 	>
 		<div
-			class="hidden lg:flex w-full rounded-full px-2.5 gap-2 bg-gray-100/80 dark:bg-gray-850/80 backdrop-blur-2xl my-1 -mx-1 mt-1.5"
+			class="hidden lg:flex w-full rounded-lg px-2.5 gap-2 bg-gray-100/80 dark:bg-white/[0.05] backdrop-blur-2xl my-1 -mx-1 mt-1.5"
 			id="settings-search"
+			style="border: 1px solid rgba(255,255,255,0.08);"
 		>
 			<div class="self-center rounded-l-xl bg-transparent">
 				<Search className="size-3.5" strokeWidth="1.5" />
 			</div>
 			<label class="sr-only" for="search-input-settings-modal">{$i18n.t('Search')}</label>
 			<input
-				class="w-full py-1 text-sm bg-transparent dark:text-gray-300 outline-hidden"
+				class="w-full py-1.5 text-sm bg-transparent dark:text-gray-300 outline-hidden"
 				bind:value={search}
 				id="search-input-settings-modal"
 				on:input={searchDebounceHandler}
@@ -307,30 +308,23 @@
 			/>
 		</div>
 
-		<!-- {$i18n.t('General')} -->
-		<!-- {$i18n.t('Connections')} -->
-		<!-- {$i18n.t('Models')} -->
-		<!-- {$i18n.t('Evaluations')} -->
-		<!-- {$i18n.t('Integrations')} -->
-		<!-- {$i18n.t('Documents')} -->
-		<!-- {$i18n.t('Web Search')} -->
-		<!-- {$i18n.t('Code Execution')} -->
-		<!-- {$i18n.t('Interface')} -->
-		<!-- {$i18n.t('Audio')} -->
-		<!-- {$i18n.t('Images')} -->
-		<!-- {$i18n.t('Pipelines')} -->
-		<!-- {$i18n.t('Database')} -->
+		{#if search === ''}
+			<div class="hidden lg:block text-[11px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 pt-3 pb-1.5">
+				{$i18n.t('Settings')}
+			</div>
+		{/if}
+
 		{#each filteredSettings as tab (tab.id)}
 			<a
 				id={tab.id}
 				href={tab.route}
 				draggable="false"
-				class="px-0.5 py-1 min-w-fit rounded-lg flex-1 lg:flex-none flex text-right transition select-none {selectedTab ===
+				class="px-2 py-1.5 min-w-fit rounded-lg flex-1 lg:flex-none flex items-center text-right transition-all duration-150 select-none {selectedTab ===
 				tab.id
-					? ''
-					: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
+					? 'dark:bg-white/[0.08] dark:text-white font-semibold'
+					: 'text-gray-300 dark:text-gray-500 hover:dark:text-gray-300 hover:dark:bg-white/[0.04] hover:text-gray-700'}"
 			>
-				<div class=" self-center mr-2">
+				<div class="self-center mr-2.5 opacity-80">
 					{#if tab.id === 'general'}
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
@@ -504,7 +498,7 @@
 	</div>
 
 	<div
-		class="flex-1 mt-3 lg:mt-1 px-[16px] lg:pr-[16px] lg:pl-0 overflow-y-scroll scrollbar-hidden"
+		class="flex-1 mt-3 lg:mt-1 px-[16px] lg:pr-[16px] lg:pl-4 overflow-y-scroll scrollbar-hidden lg:border-l dark:border-white/[0.06]"
 	>
 		{#if selectedTab === 'general'}
 			<General
