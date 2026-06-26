@@ -342,8 +342,8 @@ def mark_key_failed(provider_id: str, failed_key: str):
 
 # ── Provider Health ─────────────────────────────────────────────────────────
 
-FAILURE_COOLDOWN = 30
-MAX_FAILURES = 3
+FAILURE_COOLDOWN = 60
+MAX_FAILURES = 5
 
 
 def mark_failure(pid: str):
@@ -363,6 +363,28 @@ def is_available(pid: str) -> bool:
     return provider_status.get(pid, {}).get("cooldown_until", 0) <= time.time()
 
 
+# Per-model failure tracking (prevents repeatedly trying broken models in wildcard)
+model_failures: dict = {}  # "provider/model" → {"failures": int, "cooldown_until": float}
+
+def mark_model_failure(pid: str, model: str):
+    key = f"{pid}/{model}"
+    s = model_failures.setdefault(key, {"failures": 0, "cooldown_until": 0})
+    s["failures"] += 1
+    if s["failures"] >= 2:
+        s["cooldown_until"] = time.time() + 120  # 2 min cooldown per broken model
+
+def mark_model_success(pid: str, model: str):
+    key = f"{pid}/{model}"
+    model_failures.pop(key, None)
+
+def is_model_available(pid: str, model: str) -> bool:
+    key = f"{pid}/{model}"
+    s = model_failures.get(key)
+    if not s:
+        return True
+    return s.get("cooldown_until", 0) <= time.time()
+
+
 # ── Proxy Logic ─────────────────────────────────────────────────────────────
 
 RETRYABLE = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
@@ -371,6 +393,9 @@ RETRYABLE = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, timeout: float = 120.0):
     prov = providers.get(pid)
     if not prov or not prov.get("base_url") or not is_available(pid):
+        return None
+    if not is_model_available(pid, backend_model):
+        logger.debug(f"Skipping {pid}/{backend_model} (in per-model cooldown)")
         return None
 
     keys = prov.get("api_keys", [])
@@ -406,12 +431,12 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                     if resp.status_code in RETRYABLE or resp.status_code >= 400:
                         await resp.aclose()
                         await client.aclose()
+                        mark_model_failure(pid, backend_model)
                         mark_failure(pid)
                         return None
 
                     mark_success(pid)
-                    # Return client + resp for streaming — no first-chunk validation
-                    # (validating requires consuming part of the stream which can break SSE)
+                    mark_model_success(pid, backend_model)
                     return {"client": client, "resp": resp, "stream": True}
                 else:
                     resp = await client.post(url, json=req_body, headers=headers)
@@ -421,6 +446,7 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                         continue
                     if resp.status_code in RETRYABLE or resp.status_code >= 400:
                         await client.aclose()
+                        mark_model_failure(pid, backend_model)
                         mark_failure(pid)
                         return None
 
@@ -430,9 +456,11 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                     if not choices or not choices[0].get("message", {}).get("content"):
                         logger.warning(f"Provider {pid}/{backend_model} returned empty response")
                         await client.aclose()
+                        mark_model_failure(pid, backend_model)
                         return None
 
                     mark_success(pid)
+                    mark_model_success(pid, backend_model)
                     await client.aclose()
                     return {"data": data, "stream": False}
 
@@ -644,6 +672,38 @@ def get_user_email(request: Request) -> str:
 @app.on_event("startup")
 async def startup():
     load_all()
+    # Auto-sync models for all providers that have a base_url and API keys
+    await auto_sync_provider_models()
+
+
+async def auto_sync_provider_models():
+    """Sync model lists from all configured providers on startup."""
+    for pid, prov in providers.items():
+        base_url = prov.get("base_url", "").rstrip("/")
+        api_keys = prov.get("api_keys", [])
+        if not base_url:
+            continue
+        headers = {"Content-Type": "application/json"}
+        if api_keys:
+            headers["Authorization"] = f"Bearer {api_keys[0]}"
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                res = await client.get(f"{base_url}/models", headers=headers)
+                if res.status_code == 200:
+                    data = res.json()
+                    model_ids = [
+                        m.get("id", "") for m in data.get("data", [])
+                        if m.get("id") and m.get("available", True) is not False
+                    ]
+                    if model_ids:
+                        provider_models_cache[pid] = model_ids
+                        logger.info(f"Auto-synced {len(model_ids)} models for {pid}")
+                else:
+                    logger.warning(f"Auto-sync failed for {pid}: HTTP {res.status_code}")
+        except Exception as e:
+            logger.warning(f"Auto-sync failed for {pid}: {e}")
+    if provider_models_cache:
+        save_provider_models_cache()
 
 
 @app.get("/health")
@@ -701,17 +761,24 @@ async def chat_completions(request: Request):
         )
 
     # Expand backends: if model is "*" or empty, use all cached models from that provider
+    # Priority models tried first in wildcard expansion (routers/best models)
+    PRIORITY_MODELS = ["auto", "fusion"]
+    MAX_WILDCARD_BACKENDS = 10  # Don't try more than 10 models from one provider
+
     expanded_backends = []
     for backend in facade.get("backends", []):
         pid = backend["provider"]
         bmodel = backend.get("model", "")
         if bmodel == "*" or bmodel == "":
-            # Use all cached models from this provider as fallbacks
             cached = provider_models_cache.get(pid, [])
             if cached:
-                for cm in cached:
+                # Put priority models first, then the rest (limited)
+                priority = [m for m in PRIORITY_MODELS if m in cached]
+                rest = [m for m in cached if m not in PRIORITY_MODELS]
+                ordered = priority + rest[:MAX_WILDCARD_BACKENDS - len(priority)]
+                for cm in ordered:
                     expanded_backends.append({"provider": pid, "model": cm})
-                logger.info(f"Expanded wildcard for {pid}: {len(cached)} models")
+                logger.info(f"Expanded wildcard for {pid}: {len(ordered)} models (priority: {priority})")
             else:
                 logger.warning(f"No cached models for provider {pid} — sync models first")
         else:
@@ -736,9 +803,11 @@ async def chat_completions(request: Request):
                         await resp.aclose()
                         await client.aclose()
 
+                # Forward the upstream content-type if present
+                upstream_ct = http_resp.headers.get("content-type", "text/event-stream")
                 return StreamingResponse(
                     stream_out(),
-                    media_type="text/event-stream",
+                    media_type=upstream_ct,
                     headers={"X-Gateway-Provider": pid, "X-Model-Tier": tier},
                 )
             else:
@@ -1072,8 +1141,11 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
             res = await client.get(f"{base_url}/models", headers=headers)
             res.raise_for_status()
             data = res.json()
-            # Cache the model IDs for this provider (used for wildcard backends)
-            model_ids = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+            # Cache only available model IDs for this provider (used for wildcard backends)
+            model_ids = [
+                m.get("id", "") for m in data.get("data", [])
+                if m.get("id") and m.get("available", True) is not False
+            ]
             if model_ids:
                 provider_models_cache[provider_id] = model_ids
                 save_provider_models_cache()
@@ -1521,6 +1593,7 @@ async def admin_test_model(request: Request):
 async def admin_reload(request: Request):
     check_admin(request)
     load_all()
+    await auto_sync_provider_models()
     return {
         "status": "reloaded",
         "models": len(facade_models),
