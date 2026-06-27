@@ -2359,13 +2359,14 @@ async def admin_test_model(request: Request):
     for backend in expanded[:5]:  # Test first 5 only
         pid = backend["provider"]
         bmodel = backend["model"]
-        result = await try_provider(pid, bmodel, test_body, stream=False)
+        errs = []
+        result = await try_provider(pid, bmodel, test_body, stream=False, errors=errs)
         if result is not None:
             data = result.get("data", {})
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             results.append({"provider": pid, "model": bmodel, "status": "ok", "response": content})
         else:
-            results.append({"provider": pid, "model": bmodel, "status": "failed"})
+            results.append({"provider": pid, "model": bmodel, "status": "failed", "errors": errs})
 
     return {"facade_model": model_id, "backends_tested": len(results), "results": results}
 
