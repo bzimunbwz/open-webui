@@ -116,7 +116,7 @@
 			</div>
 		</nav>
 
-		<div class="pb-1 flex-1 min-h-0 overflow-y-auto">
+		<div class="pt-3 sm:pt-4 pb-1 flex-1 min-h-0 overflow-y-auto">
 			<slot />
 		</div>
 	</div>
