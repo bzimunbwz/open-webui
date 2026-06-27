@@ -1037,6 +1037,14 @@ def seed_cloudflare_models():
 
     # id -> tier  (size-based heuristic; see docstring)
     CF_MODELS = {
+        # Newer models (exact IDs verified from official model pages)
+        "@cf/zai-org/glm-4.7-flash": "paid",
+        "@cf/moonshotai/kimi-k2.5": "paid",
+        "@cf/nvidia/nemotron-3-120b-a12b": "paid",
+        "@cf/google/gemma-4-26b-a4b-it": "paid",
+        "@cf/aisingapore/gemma-sea-lion-v4-27b-it": "paid",
+        "@cf/ibm-granite/granite-4.0-h-micro": "free",
+        "@hf/thebloke/deepseek-coder-6.7b-base-awq": "free",
         # Flagship / large -> paid
         "@cf/meta/llama-4-scout-17b-16e-instruct": "paid",
         "@cf/meta/llama-3.3-70b-instruct-fp8-fast": "paid",
