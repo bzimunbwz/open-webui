@@ -3,6 +3,8 @@
 	import { embed, showControls, showEmbeds } from '$lib/stores';
 
 	import CitationModal from './Citations/CitationModal.svelte';
+	import { fly, fade } from 'svelte/transition';
+	import { quintOut } from 'svelte/easing';
 
 	const i18n = getContext('i18n');
 
@@ -149,6 +151,23 @@
 			return str;
 		}
 	};
+
+	const getDomain = (url: string) => {
+		try {
+			return new URL(url).hostname.replace(/^www\./, '');
+		} catch (e) {
+			return url;
+		}
+	};
+
+	const portal = (node: HTMLElement) => {
+		document.body.appendChild(node);
+		return {
+			destroy() {
+				if (node.parentNode) node.parentNode.removeChild(node);
+			}
+		};
+	};
 </script>
 
 <CitationModal
@@ -207,28 +226,82 @@
 {/if}
 
 {#if showCitations}
-	<div class="py-1.5">
-		<div class="text-xs gap-2 flex flex-col">
+	<!-- Backdrop -->
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div
+		class="fixed inset-0 z-[9998] bg-black/30 dark:bg-black/50"
+		use:portal
+		transition:fade={{ duration: 200 }}
+		on:click={() => (showCitations = false)}
+	></div>
+
+	<!-- Right-side sources tray -->
+	<div
+		class="fixed top-0 right-0 bottom-0 z-[9999] w-full sm:max-w-[26rem] bg-white dark:bg-[#1c1c1b] border-l border-gray-100 dark:border-white/10 shadow-2xl flex flex-col"
+		use:portal
+		transition:fly={{ x: 460, duration: 380, easing: quintOut }}
+	>
+		<div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-white/10 shrink-0">
+			<div class="flex items-center gap-2">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 text-gray-500"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+				<h2 class="text-base font-semibold text-gray-900 dark:text-white">
+					{$i18n.t('{{COUNT}} Sources', { COUNT: citations.length })}
+				</h2>
+			</div>
+			<button
+				class="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition"
+				on:click={() => (showCitations = false)}
+				aria-label={$i18n.t('Close')}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="size-5 text-gray-500"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>
+			</button>
+		</div>
+
+		<div class="flex-1 overflow-y-auto px-3.5 py-3.5 flex flex-col gap-2.5">
 			{#each citations as citation, idx}
+				{@const isUrl = citation?.source?.name?.startsWith('http')}
+				{@const url = citation?.source?.url || citation?.source?.name || ''}
+				{@const snippet = (citation?.document?.[0] ?? '').toString()}
 				<button
 					id={`source-${id}-${idx + 1}`}
-					aria-label={$i18n.t('View source: {{name}}', {
-						name: decodeString(citation.source.name)
-					})}
-					class="no-toggle outline-hidden flex dark:text-gray-300 bg-transparent text-gray-600 rounded-xl gap-1.5 items-center"
+					aria-label={$i18n.t('View source: {{name}}', { name: decodeString(citation.source.name) })}
+					class="group text-left rounded-2xl border border-gray-100 dark:border-white/10 bg-transparent hover:bg-black/[0.03] dark:hover:bg-white/[0.04] hover:border-gray-200 dark:hover:border-white/20 transition p-3.5 flex flex-col gap-2"
 					on:click={() => {
 						showCitationModal = true;
 						selectedCitation = citation;
 					}}
 				>
-					<div class=" font-medium bg-gray-50 dark:bg-gray-850 rounded-md px-1">
-						{idx + 1}
+					<div class="flex items-center gap-2.5 min-w-0 w-full">
+						{#if isUrl}
+							<img
+								src="https://www.google.com/s2/favicons?sz=64&domain={citation.source.name}"
+								alt=""
+								class="size-5 rounded-md shrink-0 bg-white"
+								on:error={(e) => {
+									e.target.src = '/favicon.png';
+								}}
+							/>
+						{:else}
+							<div class="size-5 rounded-md shrink-0 bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[10px] font-semibold text-gray-500">
+								{idx + 1}
+							</div>
+						{/if}
+						<div class="min-w-0 flex-1">
+							<div class="text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:text-black dark:group-hover:text-white truncate transition">
+								{decodeString(citation.source.name)}
+							</div>
+							{#if isUrl}
+								<div class="text-[11px] text-gray-400 truncate">{getDomain(url)}</div>
+							{/if}
+						</div>
+						<div class="text-[11px] font-medium text-gray-400 shrink-0">#{idx + 1}</div>
 					</div>
-					<div
-						class="flex-1 truncate hover:text-black dark:text-white/60 dark:hover:text-white transition text-left"
-					>
-						{decodeString(citation.source.name)}
-					</div>
+					{#if snippet}
+						<div class="text-xs text-gray-500 dark:text-gray-400 line-clamp-3 leading-relaxed">
+							{snippet}
+						</div>
+					{/if}
 				</button>
 			{/each}
 		</div>
