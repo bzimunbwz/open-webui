@@ -370,7 +370,7 @@
 		</div>
 
 		<div
-			class="py-2 bg-white dark:bg-gray-900 rounded-3xl border border-gray-100/30 dark:border-gray-850/30"
+			class="py-2 px-1 bg-gray-50 dark:bg-gray-850 rounded-2xl border border-gray-100 dark:border-white/10"
 		>
 			<div class="px-3.5 flex flex-1 items-center w-full space-x-2 py-0.5 pb-2">
 				<div class="flex flex-1 items-center">
@@ -480,7 +480,7 @@
 									>
 										{#each notesList as note, idx (note.id)}
 											<div
-												class=" flex cursor-pointer w-full px-3.5 py-1.5 border border-gray-50 dark:border-gray-850/30 bg-transparent dark:hover:bg-gray-850 hover:bg-white rounded-2xl transition"
+												class=" flex cursor-pointer w-full px-3.5 py-1.5 border border-gray-100 dark:border-white/10 bg-transparent hover:bg-black/[0.03] dark:hover:bg-white/[0.04] hover:border-gray-200 dark:hover:border-white/20 rounded-2xl transition"
 											>
 												<a href={`/notes/${note.id}`} class="w-full flex flex-col justify-between">
 													<div class="flex-1">
@@ -574,7 +574,7 @@
 									>
 										{#each notesList as note, idx (note.id)}
 											<div
-												class=" flex space-x-4 cursor-pointer w-full px-4.5 py-4 border border-gray-50 dark:border-gray-850/30 bg-transparent dark:hover:bg-gray-850 hover:bg-white rounded-2xl transition"
+												class=" flex space-x-4 cursor-pointer w-full px-4.5 py-4 border border-gray-100 dark:border-white/10 bg-transparent hover:bg-black/[0.03] dark:hover:bg-white/[0.04] hover:border-gray-200 dark:hover:border-white/20 rounded-2xl transition"
 											>
 												<div class=" flex flex-1 space-x-4 cursor-pointer w-full">
 													<a
