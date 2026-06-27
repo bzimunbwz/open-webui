@@ -28,6 +28,7 @@
 	import { toast } from 'svelte-sonner';
 	import { capitalizeFirstLetter, sanitizeResponseContent, splitStream } from '$lib/utils';
 	import { getModels } from '$lib/apis';
+	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
 	import ChevronDown from '$lib/components/icons/ChevronDown.svelte';
 	import Check from '$lib/components/icons/Check.svelte';
@@ -532,10 +533,13 @@
 			}}
 		>
 			{#if selectedModel}
-				{selectedModel.label}
-			{:else}
-				{placeholder}
-			{/if}
+					<div class="flex items-center gap-2 min-w-0">
+						<img src="{WEBUI_API_BASE_URL}/models/model/profile/image?id={selectedModel.value}" alt="" class="size-5 rounded-full object-cover flex-none" on:error={(e) => { e.currentTarget.src = '/favicon.png'; }} />
+						<span class="truncate">{selectedModel.label}</span>
+					</div>
+				{:else}
+					{placeholder}
+				{/if}
 			<ChevronDown className=" self-center ml-2 size-3" strokeWidth="2.5" />
 		</div>
 	</button>
@@ -551,7 +555,7 @@
 			<div
 				class="z-40 {$mobile
 					? `w-full`
-					: `${className}`} max-w-[calc(100vw-1rem)] justify-start rounded-2xl bg-white dark:bg-gray-850 dark:text-white shadow-lg outline-hidden"
+					: `${className}`} max-w-[calc(100vw-1rem)] justify-start rounded-2xl bg-white dark:bg-[#1c1c1b] dark:text-white shadow-2xl border border-gray-100 dark:border-white/10 outline-hidden"
 				transition:flyAndScale
 			>
 				<slot>
