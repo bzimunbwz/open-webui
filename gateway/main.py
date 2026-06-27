@@ -1016,7 +1016,7 @@ def seed_cloudflare_models():
     models = paid. Source: https://developers.cloudflare.com/workers-ai/models/
     """
     global providers
-    account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip() or "f56a98e5b2b446001d531e4a63d01452"
+    account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip() or "fecee6f1a4edbb91eabb6752108504d2"
     base_url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1"
 
     if "cloudflare" not in providers:
@@ -1031,7 +1031,7 @@ def seed_cloudflare_models():
         logger.info("Seeded Cloudflare Workers AI provider")
     else:
         bu = providers["cloudflare"].get("base_url", "")
-        if (not bu) or ("${" in bu) or ("/accounts//" in bu):
+        if (not bu) or ("${" in bu) or ("/accounts//" in bu) or ("f56a98e5b2b446001d531e4a63d01452" in bu):
             providers["cloudflare"]["base_url"] = base_url
             save_providers()
 
