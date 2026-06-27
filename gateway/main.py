@@ -1063,6 +1063,8 @@ def seed_cloudflare_models():
         "@cf/moonshotai/kimi-k2.7-code": "paid",
         "@cf/moonshotai/kimi-k2.6": "paid",
         "@cf/moonshotai/kimi-k2.5": "paid",
+        "@cf/deepseek-ai/deepseek-v4-pro": "paid",
+        "@cf/anthropic/claude-fable-5": "paid",
     }
 
     # Authoritative for cloudflare: replace cache+tiers so retired models drop out
