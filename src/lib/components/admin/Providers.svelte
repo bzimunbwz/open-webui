@@ -171,6 +171,7 @@
 					name: p.name || tmpl.name || id,
 					base_url: p.base_url || tmpl.base_url || '',
 					api_keys: p.api_keys || [],
+					endpoints: p.endpoints || [],
 					description: tmpl.description || '',
 					docs_url: tmpl.docs_url || '',
 					icon: tmpl.icon || '☁',
@@ -205,6 +206,7 @@
 				name: p.name,
 				base_url: p.base_url,
 				api_keys: p.api_keys.filter((k: string) => k.trim()),
+				endpoints: (p.endpoints || []).filter((e) => (e.account_id || e.base_url) && e.api_key),
 			});
 			toast.success(`${p.name} saved`);
 			await loadAll();
@@ -262,6 +264,20 @@
 	function maskKey(key: string): string {
 		if (!key || key.length < 12) return '••••••••';
 		return key.slice(0, 8) + ' ... ' + key.slice(-4);
+	}
+
+	function addEndpoint(provider: any) {
+		if (!provider.endpoints) provider.endpoints = [];
+		provider.endpoints = [
+			...provider.endpoints,
+			provider.id === 'cloudflare' ? { account_id: '', api_key: '' } : { base_url: '', api_key: '' }
+		];
+		providers = providers;
+	}
+
+	function removeEndpoint(provider: any, idx: number) {
+		provider.endpoints = (provider.endpoints || []).filter((_: any, i: number) => i !== idx);
+		providers = providers;
 	}
 
 	async function bulkAddKeys() {
@@ -701,6 +717,32 @@
 											</div>
 										{/if}
 									</div>
+								</div>
+
+								<!-- Multi-account fallback (rotate across accounts/keys past per-account quota) -->
+								<div class="mt-3 pt-3 border-t border-gray-700/40">
+									<div class="flex items-center justify-between mb-1.5">
+										<label class="text-xs text-gray-400">{provider.id === 'cloudflare' ? 'Cloudflare accounts (ID + API token)' : 'Extra accounts (Base URL + API key)'}</label>
+										<button on:click={() => addEndpoint(provider)} class="text-xs px-2 py-0.5 bg-gray-700 rounded hover:bg-gray-600 transition">+ Add account</button>
+									</div>
+									<p class="text-[11px] text-gray-600 mb-2">When one account hits its quota (429/402) the request rotates to the next, so responses don't stop. Click Save Config after editing.</p>
+									{#if (provider.endpoints || []).length > 0}
+										<div class="flex flex-col gap-1.5">
+											{#each provider.endpoints as ep, i}
+												<div class="flex items-center gap-2">
+													{#if provider.id === 'cloudflare'}
+														<input bind:value={ep.account_id} placeholder="Account ID" class="flex-1 text-xs bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 font-mono outline-none" />
+													{:else}
+														<input bind:value={ep.base_url} placeholder="Base URL" class="flex-1 text-xs bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 font-mono outline-none" />
+													{/if}
+													<input bind:value={ep.api_key} placeholder="API token" type="password" class="flex-1 text-xs bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 font-mono outline-none" />
+													<button class="text-red-500 hover:text-red-400 transition" on:click={() => removeEndpoint(provider, i)} aria-label="Remove account">
+														<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd" /></svg>
+													</button>
+												</div>
+											{/each}
+										</div>
+									{/if}
 								</div>
 
 								<!-- Action buttons -->
