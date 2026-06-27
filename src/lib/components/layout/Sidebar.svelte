@@ -1066,11 +1066,11 @@
 					}
 				}}
 			>
-				<div class="pb-1.5">
+				<div class="pb-1 mx-1.5 mt-1 mb-1.5 p-1 rounded-2xl bg-gray-100/70 dark:bg-white/[0.03]">
 					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
 						<a
 							id="sidebar-new-chat-button"
-							class="group grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none {sbPath === '/' ? 'bg-gray-100 dark:bg-gray-850' : ''}\"
+							class="group grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none {sbPath === '/' ? 'bg-black/5 dark:bg-white/[0.08]' : ''}\"
 							href="/"
 							draggable="false"
 							on:click={newChatHandler}
@@ -1119,7 +1119,7 @@
 								>
 									<a
 										id="sidebar-{itemId}-button"
-										class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition {sbPath === meta.href ? 'bg-gray-100 dark:bg-gray-850' : ''}\"
+										class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition {sbPath === meta.href ? 'bg-black/5 dark:bg-white/[0.08]' : ''}\"
 										href={meta.href}
 										on:click={itemClickHandler}
 										draggable="false"
