@@ -2224,6 +2224,114 @@ async def admin_test_model(request: Request):
     return {"facade_model": model_id, "backends_tested": len(results), "results": results}
 
 
+DEFAULT_TEST_MODELS = {
+    "freemodel": "gpt-5.4",
+    "llm7": "codestral-latest",
+    "zai": "glm-4.5-flash",
+    "freellmapi": "auto",
+}
+
+
+@app.post("/admin/test-providers")
+async def admin_test_providers(request: Request):
+    """Live auth + chat-completion test for every provider, to confirm the keys
+    actually work for facade-model routing.
+
+    Optional JSON body (all fields optional):
+      {
+        "keys":      {"<pid>": "<api_key>"},   # throwaway/override keys to test
+        "base_urls": {"<pid>": "<url>"},        # override base_url per provider
+        "models":    {"<pid>": "<model>"},      # override the model to probe
+        "save":      true                        # persist the provided keys/urls
+      }
+    With no body it tests whatever is already configured on the gateway.
+    """
+    check_admin(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    key_over = body.get("keys", {}) or {}
+    url_over = body.get("base_urls", {}) or {}
+    model_over = body.get("models", {}) or {}
+    do_save = bool(body.get("save"))
+
+    pids = list(dict.fromkeys(list(providers.keys()) + list(key_over.keys())))
+    results = {}
+    saved = []
+    for pid in pids:
+        prov = providers.get(pid, {})
+        base_url = (url_over.get(pid) or resolve_env(prov.get("base_url", ""))).rstrip("/")
+        keys = prov.get("api_keys", [])
+        api_key = key_over.get(pid) or (keys[0] if keys else "")
+
+        model = model_over.get(pid) or DEFAULT_TEST_MODELS.get(pid)
+        if not model:
+            cached = [c for c in provider_models_cache.get(pid, []) if is_model_enabled(pid, c)]
+            model = cached[0] if cached else None
+
+        entry = {"base_url": base_url, "model": model, "key_configured": bool(api_key)}
+        if not base_url:
+            entry.update(ok=False, error="no base_url configured")
+            results[pid] = entry; continue
+        if not api_key:
+            entry.update(ok=False, error="no API key configured")
+            results[pid] = entry; continue
+        if not model:
+            entry.update(ok=False, error="no model available to test (sync models first)")
+            results[pid] = entry; continue
+
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": "Reply with just: OK"}],
+            "max_tokens": 10,
+            "stream": False,
+        }
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        try:
+            t0 = time.time()
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+            entry["status"] = r.status_code
+            entry["latency_ms"] = int((time.time() - t0) * 1000)
+            if r.status_code == 200:
+                try:
+                    j = r.json()
+                    msg = j.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    entry["ok"] = True
+                    entry["sample"] = (msg or "")[:80]
+                except Exception as e:
+                    entry["ok"] = False
+                    entry["error"] = f"HTTP 200 but unparseable response: {e}"
+            else:
+                entry["ok"] = False
+                try:
+                    entry["error"] = r.json()
+                except Exception:
+                    entry["error"] = r.text[:200]
+        except Exception as e:
+            entry.update(ok=False, error=f"{type(e).__name__}: {e}")
+
+        if do_save and key_over.get(pid):
+            prov = providers.setdefault(pid, {"name": pid, "base_url": "", "api_keys": []})
+            if url_over.get(pid):
+                prov["base_url"] = url_over[pid]
+            prov.setdefault("api_keys", [])
+            if key_over[pid] not in prov["api_keys"]:
+                prov["api_keys"].append(key_over[pid])
+            saved.append(pid)
+
+        results[pid] = entry
+
+    if saved:
+        save_providers()
+        logger.info(f"test-providers saved keys for: {saved}")
+
+    all_ok = bool(results) and all(v.get("ok") for v in results.values())
+    return {"ok": all_ok, "saved": saved, "results": results}
+
+
+
 @app.post("/admin/reload")
 async def admin_reload(request: Request):
     check_admin(request)
