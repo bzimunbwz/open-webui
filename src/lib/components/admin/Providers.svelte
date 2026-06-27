@@ -186,8 +186,8 @@
 
 			connected = true;
 			hasUnsavedChanges = false;
-			// Auto-expand all and auto-sync models
-			providers.forEach(p => { expandedProviders[p.id] = true; });
+			// Collapsed by default — admin expands a card when needed
+			providers.forEach(p => { expandedProviders[p.id] = false; });
 			// Auto-sync models for all providers that have base_url and keys
 			for (const p of providers) {
 				if (p.base_url && p.api_keys.length > 0) {
