@@ -1066,11 +1066,11 @@
 					}
 				}}
 			>
-				<div class="pb-1 mx-1.5 mt-1 mb-1.5 p-1 rounded-2xl bg-gray-100/70 dark:bg-white/[0.03]">
+				<div class="pb-1 mx-1.5 mt-1 mb-1.5 p-1 rounded-[8px] bg-gray-100/70 dark:bg-white/[0.03]">
 					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
 						<a
 							id="sidebar-new-chat-button"
-							class="group grow flex items-center space-x-3 rounded-xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none {sbPath === '/' ? 'bg-black/5 dark:bg-[#2c2c2c]' : ''}\"
+							class="group grow flex items-center space-x-3 rounded-lg px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none {sbPath === '/' ? 'bg-black/5 dark:bg-[#2c2c2c]' : ''}\"
 							href="/"
 							draggable="false"
 							on:click={newChatHandler}
@@ -1091,7 +1091,7 @@
 					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
 						<button
 							id="sidebar-search-button"
-							class="group grow flex items-center space-x-3 rounded-xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
+							class="group grow flex items-center space-x-3 rounded-lg px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
 							on:click={() => {
 								showSearch.set(true);
 							}}
@@ -1119,7 +1119,7 @@
 								>
 									<a
 										id="sidebar-{itemId}-button"
-										class="grow flex items-center space-x-3 rounded-xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition {sbPath === meta.href ? 'bg-black/5 dark:bg-[#2c2c2c]' : ''}\"
+										class="grow flex items-center space-x-3 rounded-lg px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition {sbPath === meta.href ? 'bg-black/5 dark:bg-[#2c2c2c]' : ''}\"
 										href={meta.href}
 										on:click={itemClickHandler}
 										draggable="false"
