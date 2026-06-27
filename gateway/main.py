@@ -1039,6 +1039,11 @@ def seed_cloudflare_models():
     CF_MODELS = {
         # Newer models (exact IDs verified from official model pages)
         "@cf/zai-org/glm-4.7-flash": "paid",
+        "@cf/zai-org/glm-5.2": "paid",
+        "@cf/deepseek-ai/deepseek-v4-pro": "paid",
+        "@cf/moonshotai/kimi-k2.7-code": "paid",
+        "@cf/moonshotai/kimi-k2.6": "paid",
+        "@cf/anthropic/claude-fable-5": "paid",
         "@cf/moonshotai/kimi-k2.5": "paid",
         "@cf/nvidia/nemotron-3-120b-a12b": "paid",
         "@cf/google/gemma-4-26b-a4b-it": "paid",
