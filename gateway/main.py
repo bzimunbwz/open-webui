@@ -416,6 +416,20 @@ def mark_model_success(pid: str, model: str):
     key = f"{pid}/{model}"
     model_failures.pop(key, None)
 
+def is_model_enabled(pid: str, model: str) -> bool:
+    """Whether a backend model may be used for routing / fallback.
+
+    A model is enabled unless the provider has an explicit enabled-list (set via
+    the admin Providers tab) that omits it. Providers with no enabled-list
+    configured default to all-enabled, preserving prior behaviour. Disabled
+    models are skipped in both wildcard expansion and explicit facade backends.
+    """
+    allow = enabled_models.get(pid)
+    if allow is None:
+        return True
+    return model in allow
+
+
 def is_model_available(pid: str, model: str) -> bool:
     key = f"{pid}/{model}"
     s = model_failures.get(key)
@@ -1204,7 +1218,7 @@ async def chat_completions(request: Request):
         pid = backend["provider"]
         bmodel = backend.get("model", "")
         if bmodel == "*" or bmodel == "":
-            cached = provider_models_cache.get(pid, [])
+            cached = [m for m in provider_models_cache.get(pid, []) if is_model_enabled(pid, m)]
             if cached:
                 # Put priority models first, then the rest (limited)
                 priority = [m for m in PRIORITY_MODELS if m in cached]
@@ -1217,6 +1231,9 @@ async def chat_completions(request: Request):
                 logger.warning(f"No cached models for provider {pid} — sync models first")
         else:
             expanded_backends.append(backend)
+
+    # Drop any backend whose model has been disabled in the provider list
+    expanded_backends = [b for b in expanded_backends if is_model_enabled(b["provider"], b["model"])]
 
     for backend in expanded_backends:
         pid = backend["provider"]
@@ -2163,10 +2180,10 @@ async def admin_test_model(request: Request):
         pid = backend["provider"]
         bmodel = backend.get("model", "")
         if bmodel == "*" or bmodel == "":
-            cached = provider_models_cache.get(pid, [])
+            cached = [m for m in provider_models_cache.get(pid, []) if is_model_enabled(pid, m)]
             for cm in cached:
                 expanded.append({"provider": pid, "model": cm})
-        else:
+        elif is_model_enabled(pid, bmodel):
             expanded.append(backend)
 
     results = []
