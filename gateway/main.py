@@ -385,6 +385,9 @@ def save_deleted_models():
 def get_next_key(provider_id: str) -> str:
     prov = providers.get(provider_id, {})
     keys = prov.get("api_keys", [])
+    if isinstance(keys, str):
+        keys = [keys] if keys else []
+        prov["api_keys"] = keys
     if not keys:
         return ""
     n = len(keys)
@@ -1703,7 +1706,9 @@ async def admin_update_provider(provider_id: str, request: Request):
     prov = providers[provider_id]
     if "name" in body: prov["name"] = body["name"]
     if "base_url" in body: prov["base_url"] = body["base_url"]
-    if "api_keys" in body: prov["api_keys"] = body["api_keys"]
+    if "api_keys" in body:
+        ak = body["api_keys"]
+        prov["api_keys"] = ak if isinstance(ak, list) else ([ak] if ak else [])
     save_providers()
     logger.info(f"Admin updated provider: {provider_id}")
     return {"status": "updated", "provider": provider_id}
