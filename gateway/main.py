@@ -1104,24 +1104,27 @@ def seed_cloudflare_models():
     models = paid. Source: https://developers.cloudflare.com/workers-ai/models/
     """
     global providers
-    account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip() or "fecee6f1a4edbb91eabb6752108504d2"
-    base_url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1"
+    # Account id is NOT hardcoded: it comes only from the CLOUDFLARE_ACCOUNT_ID env
+    # var (optional) or from what the admin enters in the Providers UI (base_url /
+    # the per-account "endpoints" section).
+    account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+    base_url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1" if account else ""
 
     if "cloudflare" not in providers:
         providers["cloudflare"] = {
             "name": "Cloudflare Workers AI",
             "base_url": base_url,
             "api_keys": [k for k in [os.getenv("CLOUDFLARE_API_KEY", "").strip()] if k],
+            "endpoints": [],
         }
         save_providers()
         provider_status["cloudflare"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
         key_index["cloudflare"] = 0
-        logger.info("Seeded Cloudflare Workers AI provider")
-    else:
-        bu = providers["cloudflare"].get("base_url", "")
-        if (not bu) or ("${" in bu) or ("/accounts//" in bu) or ("f56a98e5b2b446001d531e4a63d01452" in bu):
-            providers["cloudflare"]["base_url"] = base_url
-            save_providers()
+        logger.info("Seeded Cloudflare Workers AI provider (account set by admin)")
+    elif account and not providers["cloudflare"].get("base_url"):
+        # Only fill base_url from the env var when the admin hasn't set one
+        providers["cloudflare"]["base_url"] = base_url
+        save_providers()
 
     # id -> tier  (size-based heuristic; see docstring)
     CF_MODELS = {
