@@ -64,6 +64,28 @@
 		}
 	};
 
+	const getDomain = (url: string) => {
+		try {
+			return new URL(url).hostname.replace(/^www\./, '');
+		} catch {
+			return url;
+		}
+	};
+
+	function computeHeadUrl(c, docs) {
+		const u = docs?.[0]?.source?.url ?? c?.source?.url ?? '';
+		if (typeof u === 'string' && u.includes('http')) return u;
+		const n = c?.source?.name;
+		if (typeof n === 'string' && n.startsWith('http')) return n;
+		return '';
+	}
+
+	$: headUrl = computeHeadUrl(citation, mergedDocuments);
+	$: headFileId = mergedDocuments?.[0]?.metadata?.file_id ?? '';
+	$: headPage = Number.isInteger(mergedDocuments?.[0]?.metadata?.page)
+		? mergedDocuments[0].metadata.page + 1
+		: null;
+
 	const getTextFragmentUrl = (doc: any): string | null => {
 		const { metadata, source, document: content } = doc ?? {};
 		const { file_id, page } = metadata ?? {};
@@ -97,48 +119,82 @@
 
 <Modal size="lg" bind:show>
 	<div>
-		<div class=" flex justify-between dark:text-gray-300 px-4.5 pt-3 pb-2">
-			<div class=" text-lg font-medium self-center flex items-center">
-				{#if citation?.source?.name}
-					{@const document = mergedDocuments?.[0]}
-					{#if document?.metadata?.file_id || document.source?.url?.includes('http')}
-						<Tooltip
-							className="w-fit"
-							content={document.source?.url?.includes('http')
-								? $i18n.t('Open link')
-								: $i18n.t('Open file')}
-							placement="top-start"
-							tippyOptions={{ duration: [500, 0] }}
-						>
-							<a
-								class="hover:text-gray-500 dark:hover:text-gray-100 underline grow line-clamp-1"
-								href={document?.metadata?.file_id
-									? `${WEBUI_API_BASE_URL}/files/${document?.metadata?.file_id}/content${document?.metadata?.page !== undefined ? `#page=${document.metadata.page + 1}` : ''}`
-									: document.source?.url?.includes('http')
-										? document.source.url
-										: `#`}
-								target="_blank"
-							>
-								{decodeString(citation?.source?.name)}
-							</a>
-						</Tooltip>
+			<div class="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-gray-100 dark:border-white/10 dark:text-gray-200">
+				<div class="flex items-start gap-3 min-w-0">
+					{#if headUrl}
+						<img
+							src="https://www.google.com/s2/favicons?sz=64&domain={headUrl}"
+							alt=""
+							class="size-9 rounded-[var(--radius-xl)] shrink-0 bg-white border border-gray-100 dark:border-white/10 p-1 object-contain"
+							on:error={(e) => {
+								e.target.src = '/favicon.png';
+							}}
+						/>
 					{:else}
-						{decodeString(citation?.source?.name)}
+						<div class="size-9 rounded-[var(--radius-xl)] shrink-0 bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-400">
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+						</div>
 					{/if}
-				{:else}
-					{$i18n.t('Citation')}
-				{/if}
+					<div class="min-w-0">
+						<div class="text-base font-semibold text-gray-900 dark:text-white line-clamp-2">
+							{citation?.source?.name ? decodeString(citation.source.name) : $i18n.t('Citation')}
+						</div>
+						{#if headUrl}
+							<a
+								href={headUrl}
+								target="_blank"
+								class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline line-clamp-1"
+							>
+								{getDomain(headUrl)}
+							</a>
+						{:else if headFileId}
+							<a
+								href={`${WEBUI_API_BASE_URL}/files/${headFileId}/content`}
+								target="_blank"
+								class="text-xs text-gray-500 dark:text-gray-400 underline"
+							>
+								{$i18n.t('Open file')}
+							</a>
+						{/if}
+						<div class="flex items-center gap-1.5 mt-1.5 flex-wrap text-[11px] font-medium text-gray-400">
+							<span class="px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800">
+								{mergedDocuments.length}
+								{mergedDocuments.length === 1 ? $i18n.t('document') : $i18n.t('documents')}
+							</span>
+							{#if headPage}
+								<span class="px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800">{$i18n.t('page')} {headPage}</span>
+							{/if}
+							{#if showRelevance && showPercentage && mergedDocuments?.[0]?.distance !== undefined}
+								{@const pct = calculatePercentage(mergedDocuments[0].distance)}
+								{#if typeof pct === 'number'}
+									<span class={`px-1.5 py-0.5 rounded-md ${getRelevanceColor(pct)}`}>{pct.toFixed(0)}% {$i18n.t('Relevance')}</span>
+								{/if}
+							{/if}
+						</div>
+					</div>
+				</div>
+				<div class="flex items-center gap-1 shrink-0">
+					{#if headUrl}
+						<a
+							href={headUrl}
+							target="_blank"
+							class="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition text-gray-500"
+							aria-label={$i18n.t('Open link')}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+						</a>
+					{/if}
+					<button
+						class="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition"
+						aria-label={$i18n.t('Close citation modal')}
+						on:click={() => {
+							show = false;
+						}}
+					>
+						<XMark className={'size-5'} />
+					</button>
+				</div>
 			</div>
-			<button
-				class="self-center"
-				aria-label={$i18n.t('Close citation modal')}
-				on:click={() => {
-					show = false;
-				}}
-			>
-				<XMark className={'size-5'} />
-			</button>
-		</div>
 
 		<div class="flex flex-col md:flex-row w-full px-5 pb-5 md:space-x-4">
 			<div

@@ -7,7 +7,7 @@
 	export let show = true;
 	export let size = 'md';
 	export let containerClassName = 'p-3';
-	export let className = 'bg-white dark:bg-[#1c1c1b] backdrop-blur-xl rounded-3xl';
+	export let className = 'bg-white dark:bg-[#1c1c1b] backdrop-blur-xl rounded-[var(--radius-xl)]';
 
 	let modalElement = null;
 	let mounted = false;
