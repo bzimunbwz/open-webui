@@ -690,8 +690,8 @@
 						<div class="border-t border-gray-800">
 
 							<!-- Config Section -->
-							<div class="px-5 py-4 bg-gray-900/80">
-								<div class="flex items-start gap-4">
+							<div class="px-3 sm:px-5 py-4 bg-gray-900/80">
+								<div class="flex flex-col lg:flex-row items-stretch lg:items-start gap-4">
 									<!-- Config card -->
 									<div class="flex-1 bg-gray-800/60 rounded-xl p-4 border border-gray-700/50">
 										<div class="flex items-center gap-2 mb-2">
@@ -717,7 +717,7 @@
 										{#if provider.id === 'cloudflare'}
 											<div class="mb-3">
 												<label class="text-xs text-gray-400 mb-1 block">Add account (Account ID + API token)</label>
-												<div class="flex gap-2">
+												<div class="flex flex-col sm:flex-row gap-2">
 													<input bind:value={cfAccountId} placeholder="Account ID" class="flex-1 rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm font-mono" />
 													<input bind:value={cfAccountKey} placeholder="API token" type="password" class="flex-1 rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm font-mono" />
 													<button on:click={() => addSingleAccount(provider)} class="px-3 py-2 bg-green-700 text-white text-xs rounded-lg hover:bg-green-600 transition whitespace-nowrap">+ Add account</button>
@@ -729,7 +729,7 @@
 										<!-- Bulk key textarea -->
 										<div class="mb-3">
 											<label class="text-xs text-gray-400 mb-1 block">Paste one or more API keys — one per line</label>
-											<div class="flex gap-2">
+											<div class="flex flex-col sm:flex-row gap-2">
 												<textarea
 													placeholder="Paste one or more {provider.name} API keys — one per line"
 													rows="2"
@@ -744,7 +744,7 @@
 											</div>
 										</div>
 
-										<div class="flex gap-2 mb-4">
+										<div class="flex flex-wrap gap-2 mb-4">
 											<button on:click={() => { bulkUploadTarget = provider.id; bulkAddKeys(); }}
 												class="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition flex items-center gap-1">
 												<span>+</span> Add Keys
@@ -792,14 +792,14 @@
 										<button on:click={() => addEndpoint(provider)} class="text-xs px-2 py-0.5 bg-gray-700 rounded hover:bg-gray-600 transition">+ Add account</button>
 									</div>
 									<p class="text-[11px] text-gray-600 mb-2">When one account hits its quota (429/402) the request rotates to the next, so responses don't stop. Click Save Config after editing.</p>
-									<div class="flex gap-2 mb-2">
+									<div class="flex flex-col sm:flex-row gap-2 mb-2">
 										<textarea bind:value={bulkAccountsText} rows="2" placeholder="Bulk add — one per line:  accountid, apikey" class="flex-1 text-xs bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 font-mono outline-none"></textarea>
 										<button on:click={() => bulkAddAccounts(provider)} class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition self-start whitespace-nowrap">Bulk add</button>
 									</div>
 									{#if (provider.endpoints || []).length > 0}
 										<div class="flex flex-col gap-1.5">
 											{#each provider.endpoints as ep, i}
-												<div class="flex items-center gap-2">
+												<div class="flex flex-col sm:flex-row sm:items-center gap-2">
 													{#if provider.id === 'cloudflare'}
 														<input bind:value={ep.account_id} placeholder="Account ID" class="flex-1 text-xs bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 font-mono outline-none" />
 													{:else}
@@ -816,7 +816,7 @@
 								</div>
 
 								<!-- Action buttons -->
-								<div class="flex items-center justify-between mt-3">
+								<div class="flex flex-wrap items-center justify-between gap-2 mt-3">
 									<div class="flex gap-2">
 										<button on:click={() => saveProvider(provider)}
 											class="text-xs px-3 py-1.5 bg-green-700 text-white rounded-lg hover:bg-green-600 transition">Save Config</button>
