@@ -58,6 +58,7 @@ PAYMENT_HISTORY_PATH = os.path.join(DATA_DIR, "payment_history.json")
 PROVIDER_MODELS_CACHE_PATH = os.path.join(DATA_DIR, "provider_models_cache.json")
 ENABLED_MODELS_PATH = os.path.join(DATA_DIR, "enabled_models.json")
 PROVIDER_MODEL_TIERS_PATH = os.path.join(DATA_DIR, "provider_model_tiers.json")
+DELETED_MODELS_PATH = os.path.join(DATA_DIR, "deleted_models.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
 
 # Runtime state
@@ -69,6 +70,7 @@ key_index: dict = {}
 provider_models_cache: dict = {}   # provider_id → [model_id, ...]
 enabled_models: dict = {}          # provider_id → [model_id, ...] (enabled models per provider)
 provider_model_tiers: dict = {}    # provider_id → {model_id: "free"|"paid"}
+deleted_models: set = set()        # facade model ids deliberately deleted (tombstones)
 
 # Subscription state
 packages: dict = {}           # id → {id, name, tier, models: [...], price_monthly, price_yearly, features, ...}
@@ -100,6 +102,7 @@ def load_all():
     load_provider_models_cache()
     load_enabled_models()
     load_provider_model_tiers()
+    load_deleted_models()
 
 
 def load_providers():
@@ -356,6 +359,22 @@ def save_provider_model_tiers():
     ensure_data_dir()
     with open(PROVIDER_MODEL_TIERS_PATH, "w") as f:
         json.dump(provider_model_tiers, f, indent=2)
+
+
+def load_deleted_models():
+    global deleted_models
+    try:
+        with open(DELETED_MODELS_PATH) as f:
+            deleted_models = set(json.load(f))
+        logger.info(f"Loaded {len(deleted_models)} deleted-model tombstones")
+    except FileNotFoundError:
+        deleted_models = set()
+
+
+def save_deleted_models():
+    ensure_data_dir()
+    with open(DELETED_MODELS_PATH, "w") as f:
+        json.dump(sorted(deleted_models), f, indent=2)
 
 
 # ── API Key Rotation ───────────────────────────────────────────────────────
@@ -862,7 +881,7 @@ def seed_zai_models():
     added = 0
     for m in ZAI_MODELS:
         mid = m["id"]
-        if mid not in facade_models:
+        if mid not in facade_models and mid not in deleted_models:
             facade_models[mid] = {
                 "id": mid,
                 "name": m["name"],
@@ -949,7 +968,7 @@ def seed_llm7_models():
     added = 0
     for m in LLM7_MODELS:
         mid = m["id"]
-        if mid not in facade_models:
+        if mid not in facade_models and mid not in deleted_models:
             facade_models[mid] = {
                 "id": mid,
                 "name": m["name"],
@@ -1737,8 +1756,10 @@ async def admin_create_model(request: Request):
     model = {"id": model_id, "name": name, "tier": tier, "backends": backends, "system_prompt": system_prompt}
     facade_models[model_id] = model
     model_tiers[model_id] = tier
+    deleted_models.discard(model_id)
     save_models()
     save_tiers()
+    save_deleted_models()
     logger.info(f"Admin created model: {name} ({model_id})")
     return {"status": "created", "model": model}
 
@@ -1772,8 +1793,10 @@ async def admin_delete_model(model_id: str, request: Request):
     name = facade_models[model_id]["name"]
     del facade_models[model_id]
     model_tiers.pop(model_id, None)
+    deleted_models.add(model_id)
     save_models()
     save_tiers()
+    save_deleted_models()
     logger.info(f"Admin deleted model: {name} ({model_id})")
     return {"status": "deleted", "model": model_id, "name": name}
 
