@@ -1045,7 +1045,6 @@ def seed_cloudflare_models():
         "@cf/meta/llama-3.3-70b-instruct-fp8-fast": "paid",
         "@cf/nvidia/nemotron-3-120b-a12b": "paid",
         "@cf/google/gemma-4-26b-a4b-it": "paid",
-        "@cf/google/gemma-3-12b-it": "paid",
         "@cf/aisingapore/gemma-sea-lion-v4-27b-it": "paid",
         "@cf/zai-org/glm-4.7-flash": "paid",
         "@cf/qwen/qwq-32b": "paid",
@@ -1053,7 +1052,6 @@ def seed_cloudflare_models():
         "@cf/qwen/qwen3-30b-a3b-fp8": "paid",
         "@cf/mistralai/mistral-small-3.1-24b-instruct": "paid",
         "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b": "paid",
-        "@cf/meta/llama-3.2-11b-vision-instruct": "paid",
         # --- Current small / efficient models (free) ---
         "@cf/meta/llama-3.2-1b-instruct": "free",
         "@cf/meta/llama-3.2-3b-instruct": "free",
@@ -1062,11 +1060,9 @@ def seed_cloudflare_models():
         "@cf/meta/llama-guard-3-8b": "free",
         # --- Requested / newer (may not be live on Cloudflare yet) ---
         "@cf/zai-org/glm-5.2": "paid",
-        "@cf/deepseek-ai/deepseek-v4-pro": "paid",
         "@cf/moonshotai/kimi-k2.7-code": "paid",
         "@cf/moonshotai/kimi-k2.6": "paid",
         "@cf/moonshotai/kimi-k2.5": "paid",
-        "@cf/anthropic/claude-fable-5": "paid",
     }
 
     # Authoritative for cloudflare: replace cache+tiers so retired models drop out
