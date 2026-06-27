@@ -1068,21 +1068,13 @@ def seed_cloudflare_models():
         "@cf/anthropic/claude-fable-5": "paid",
     }
 
+    # Authoritative for cloudflare: replace cache+tiers so retired models drop out
     model_ids = list(CF_MODELS.keys())
-    existing_cache = provider_models_cache.get("cloudflare", [])
-    merged = list(dict.fromkeys(existing_cache + model_ids))
-    if merged != existing_cache:
-        provider_models_cache["cloudflare"] = merged
+    if provider_models_cache.get("cloudflare") != model_ids:
+        provider_models_cache["cloudflare"] = model_ids
         save_provider_models_cache()
-
-    cf_tiers = provider_model_tiers.get("cloudflare", {})
-    changed = False
-    for mid, t in CF_MODELS.items():
-        if cf_tiers.get(mid) != t:
-            cf_tiers[mid] = t
-            changed = True
-    provider_model_tiers["cloudflare"] = cf_tiers
-    if changed:
+    if provider_model_tiers.get("cloudflare") != CF_MODELS:
+        provider_model_tiers["cloudflare"] = dict(CF_MODELS)
         save_provider_model_tiers()
     logger.info(f"Seeded {len(CF_MODELS)} Cloudflare Workers AI models")
 
