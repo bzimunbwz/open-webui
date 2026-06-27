@@ -1066,7 +1066,7 @@
 					}
 				}}
 			>
-				<div class="pb-1 mx-1.5 mt-1 mb-1.5 p-1 rounded-[8px] bg-gray-100/70 dark:bg-white/[0.03]">
+				<div class="pb-1 mx-1.5 mt-1 mb-1.5 p-1 rounded-[8px] bg-gray-100/70 dark:bg-white/[0.03]" style="border: 2px solid #ffffff05;">
 					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
 						<a
 							id="sidebar-new-chat-button"
