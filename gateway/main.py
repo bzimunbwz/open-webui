@@ -68,6 +68,7 @@ facade_models: dict = {}
 model_tiers: dict = {}
 provider_status: dict = {}
 key_index: dict = {}
+key_status: dict = {}            # f"{pid}#{key}" -> cooldown_until (skip rate-limited keys)
 provider_models_cache: dict = {}   # provider_id → [model_id, ...]
 enabled_models: dict = {}          # provider_id → [model_id, ...] (enabled models per provider)
 provider_model_tiers: dict = {}    # provider_id → {model_id: "free"|"paid"}
@@ -386,18 +387,34 @@ def get_next_key(provider_id: str) -> str:
     keys = prov.get("api_keys", [])
     if not keys:
         return ""
-    idx = key_index.get(provider_id, 0) % len(keys)
-    key_index[provider_id] = (idx + 1) % len(keys)
+    n = len(keys)
+    start = key_index.get(provider_id, 0) % n
+    now = time.time()
+    # Prefer a key that is NOT in cooldown so multiple keys actually fall back
+    for i in range(n):
+        idx = (start + i) % n
+        if key_status.get(f"{provider_id}#{keys[idx]}", 0) <= now:
+            key_index[provider_id] = (idx + 1) % n
+            return keys[idx]
+    # All keys cooled down -> best-effort round-robin
+    idx = start
+    key_index[provider_id] = (idx + 1) % n
     return keys[idx]
 
 
+KEY_COOLDOWN = 45  # seconds a rate-limited / bad key is skipped
+
+
 def mark_key_failed(provider_id: str, failed_key: str):
-    prov = providers.get(provider_id, {})
-    keys = prov.get("api_keys", [])
+    if failed_key:
+        key_status[f"{provider_id}#{failed_key}"] = time.time() + KEY_COOLDOWN
+    keys = providers.get(provider_id, {}).get("api_keys", [])
     if len(keys) <= 1:
+        # Only one key -> no fallback possible, let provider health react
         mark_failure(provider_id)
         return
-    logger.info(f"Rotating key for {provider_id} (key ending ...{failed_key[-4:] if len(failed_key) >= 4 else '****'} failed)")
+    suffix = failed_key[-4:] if len(failed_key) >= 4 else "****"
+    logger.info(f"Key ...{suffix} cooled {KEY_COOLDOWN}s for {provider_id} (rotating to next key)")
 
 
 # ── Provider Health ─────────────────────────────────────────────────────────
@@ -497,16 +514,23 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                 if stream:
                     req = client.build_request("POST", url, json=req_body, headers=headers)
                     resp = await client.send(req, stream=True)
-                    if resp.status_code == 429:
+                    if resp.status_code in (429, 401):
                         await resp.aclose()
                         await client.aclose()
                         mark_key_failed(pid, api_key)
                         continue
-                    if resp.status_code in RETRYABLE or resp.status_code >= 400:
+                    if resp.status_code in RETRYABLE:
                         await resp.aclose()
                         await client.aclose()
                         mark_model_failure(pid, backend_model)
                         mark_failure(pid)
+                        return None
+                    if resp.status_code >= 400:
+                        # Client error (bad/gated/deprecated model) -> per-model only,
+                        # do NOT cool down the whole provider
+                        await resp.aclose()
+                        await client.aclose()
+                        mark_model_failure(pid, backend_model)
                         return None
 
                     mark_success(pid)
@@ -514,14 +538,20 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                     return {"client": client, "resp": resp, "stream": True}
                 else:
                     resp = await client.post(url, json=req_body, headers=headers)
-                    if resp.status_code == 429:
+                    if resp.status_code in (429, 401):
                         await client.aclose()
                         mark_key_failed(pid, api_key)
                         continue
-                    if resp.status_code in RETRYABLE or resp.status_code >= 400:
+                    if resp.status_code in RETRYABLE:
                         await client.aclose()
                         mark_model_failure(pid, backend_model)
                         mark_failure(pid)
+                        return None
+                    if resp.status_code >= 400:
+                        # Client error (bad/gated/deprecated model) -> per-model only,
+                        # do NOT cool down the whole provider
+                        await client.aclose()
+                        mark_model_failure(pid, backend_model)
                         return None
 
                     # Validate non-streaming response has content
