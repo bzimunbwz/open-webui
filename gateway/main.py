@@ -420,6 +420,63 @@ def mark_key_failed(provider_id: str, failed_key: str):
     logger.info(f"Key ...{suffix} cooled {KEY_COOLDOWN}s for {provider_id} (rotating to next key)")
 
 
+ep_index: dict = {}  # pid -> round-robin index across (base_url, api_key) endpoints
+
+
+def _cf_base(account_id: str) -> str:
+    return f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
+
+
+def list_endpoints(pid: str):
+    """All (base_url, api_key) attempts for a provider. Combines the default
+    base_url paired with each api_key, plus explicit `endpoints` entries — each
+    {base_url|account_id, api_key} — so rotation can fall back across *accounts*
+    (different base_url), which is what dodges a per-account quota."""
+    prov = providers.get(pid, {})
+    base = prov.get("base_url", "")
+    aks = prov.get("api_keys", [])
+    if isinstance(aks, str):
+        aks = [aks] if aks else []
+        prov["api_keys"] = aks
+    eps = []
+    for k in aks:
+        if base:
+            eps.append((base, k))
+    for ep in (prov.get("endpoints") or []):
+        bu = ep.get("base_url", "")
+        if not bu and ep.get("account_id") and pid == "cloudflare":
+            bu = _cf_base(ep["account_id"])
+        bu = bu or base
+        if bu:
+            eps.append((bu, ep.get("api_key", "")))
+    if not eps and base:
+        eps.append((base, ""))
+    return eps
+
+
+def next_endpoint(pid: str):
+    """Round-robin to the next endpoint that isn't in cooldown."""
+    eps = list_endpoints(pid)
+    if not eps:
+        return None
+    n = len(eps)
+    start = ep_index.get(pid, 0) % n
+    now = time.time()
+    for i in range(n):
+        idx = (start + i) % n
+        bu, k = eps[idx]
+        if key_status.get(f"{pid}#{bu}#{k}", 0) <= now:
+            ep_index[pid] = (idx + 1) % n
+            return bu, k
+    idx = start
+    ep_index[pid] = (idx + 1) % n
+    return eps[idx]
+
+
+def mark_endpoint_failed(pid: str, base_url: str, api_key: str):
+    key_status[f"{pid}#{base_url}#{api_key}"] = time.time() + KEY_COOLDOWN
+
+
 # ── Provider Health ─────────────────────────────────────────────────────────
 
 FAILURE_COOLDOWN = 60
@@ -497,13 +554,16 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
     if not is_model_available(pid, backend_model):
         note("model in per-model cooldown (recent failures)"); return None
 
-    keys = prov.get("api_keys", [])
-    attempts = max(len(keys), 1)
-    last = "no usable key"
+    eps = list_endpoints(pid)
+    attempts = max(len(eps), 1)
+    last = "no usable endpoint/key"
 
-    for attempt in range(attempts):
-        api_key = get_next_key(pid)
-        url = prov["base_url"].rstrip("/") + "/chat/completions"
+    for _ in range(attempts):
+        sel = next_endpoint(pid)
+        if sel is None:
+            break
+        base_url, api_key = sel
+        url = base_url.rstrip("/") + "/chat/completions"
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -520,9 +580,10 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                     req = client.build_request("POST", url, json=req_body, headers=headers)
                     resp = await client.send(req, stream=True)
                     sc = resp.status_code
-                    if sc in (429, 401):
+                    if sc in (429, 402, 401):
                         await resp.aclose(); await client.aclose()
-                        mark_key_failed(pid, api_key); last = f"HTTP {sc} (rotating key)"; continue
+                        mark_endpoint_failed(pid, base_url, api_key)
+                        last = f"HTTP {sc} (quota/auth - rotating to next key/account)"; continue
                     if sc in RETRYABLE:
                         await resp.aclose(); await client.aclose()
                         mark_model_failure(pid, backend_model); mark_failure(pid)
@@ -541,9 +602,10 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                 else:
                     resp = await client.post(url, json=req_body, headers=headers)
                     sc = resp.status_code
-                    if sc in (429, 401):
+                    if sc in (429, 402, 401):
                         await client.aclose()
-                        mark_key_failed(pid, api_key); last = f"HTTP {sc} (rotating key)"; continue
+                        mark_endpoint_failed(pid, base_url, api_key)
+                        last = f"HTTP {sc} (quota/auth - rotating to next key/account)"; continue
                     if sc in RETRYABLE:
                         await client.aclose()
                         mark_model_failure(pid, backend_model); mark_failure(pid)
@@ -553,25 +615,21 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                         await client.aclose()
                         mark_model_failure(pid, backend_model)
                         note(txt or f"HTTP {sc}", sc); return None
-
                     data = resp.json()
                     choices = data.get("choices", [])
                     m = choices[0].get("message", {}) if choices else {}
                     if not choices or (not m.get("content") and not m.get("reasoning_content")):
                         await client.aclose()
                         mark_model_failure(pid, backend_model)
-                        last = "empty completion"; continue  # retry with next key
-
+                        last = "empty completion"; continue
                     mark_success(pid); mark_model_success(pid, backend_model)
                     await client.aclose()
                     return {"data": data, "stream": False}
-
             except Exception as inner_e:
                 await client.aclose(); raise inner_e
-
         except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
             mark_model_failure(pid, backend_model)
-            last = f"{type(e).__name__}"; continue  # retry with next key
+            last = f"{type(e).__name__}"; continue
         except Exception as e:
             mark_model_failure(pid, backend_model)
             last = f"{type(e).__name__}: {e}"; continue
@@ -1709,6 +1767,9 @@ async def admin_update_provider(provider_id: str, request: Request):
     if "api_keys" in body:
         ak = body["api_keys"]
         prov["api_keys"] = ak if isinstance(ak, list) else ([ak] if ak else [])
+    if "endpoints" in body:
+        eps = body["endpoints"]
+        prov["endpoints"] = eps if isinstance(eps, list) else []
     save_providers()
     logger.info(f"Admin updated provider: {provider_id}")
     return {"status": "updated", "provider": provider_id}
