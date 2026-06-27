@@ -269,6 +269,25 @@
 		return key.slice(0, 8) + ' ... ' + key.slice(-4);
 	}
 
+	const PROVIDER_DOMAINS: Record<string, string> = {
+		cloudflare: 'cloudflare.com',
+		freemodel: 'freemodel.dev',
+		llm7: 'llm7.io',
+		zai: 'z.ai',
+		freellmapi: 'codesai.cc'
+	};
+
+	function providerLogo(provider: any): string {
+		let domain = PROVIDER_DOMAINS[provider.id] || '';
+		if (!domain && provider.base_url) {
+			try { domain = new URL(provider.base_url.replace('{account_id}', 'x')).hostname.replace(/^www\./, ''); } catch {}
+		}
+		if (!domain && provider.docs_url) {
+			try { domain = new URL(provider.docs_url).hostname.replace(/^www\./, ''); } catch {}
+		}
+		return domain ? `https://www.google.com/s2/favicons?sz=64&domain=${domain}` : '';
+	}
+
 	function addEndpoint(provider: any) {
 		if (!provider.endpoints) provider.endpoints = [];
 		provider.endpoints = [
@@ -639,7 +658,7 @@
 						on:click={() => { expandedProviders[provider.id] = !expandedProviders[provider.id]; }}
 					>
 						<div class="flex items-center gap-3">
-							<span class="text-lg">{PROVIDER_TEMPLATES[provider.id]?.icon || '☁'}</span>
+							<img src={providerLogo(provider) || '/favicon.png'} alt="" class="size-6 rounded-md object-contain bg-white/5 shrink-0" on:error={(e) => { e.currentTarget.src = '/favicon.png'; }} />
 							<div class="text-left">
 								<h2 class="font-semibold text-base">{provider.name}</h2>
 								<span class="text-xs text-gray-500 font-mono">{provider.base_url || 'Not configured'}</span>
