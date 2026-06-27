@@ -39,11 +39,12 @@
 		{ href: '/admin/settings', label: 'Settings', path: '/admin/settings', icon: 'settings' }
 	];
 
-	const isActive = (path: string) => {
+	$: pathname = $page.url.pathname;
+	const isActive = (path: string, pathname: string) => {
 		if (path === '/admin') {
-			return $page.url.pathname === '/admin' || $page.url.pathname.startsWith('/admin/users');
+			return pathname === '/admin' || pathname.startsWith('/admin/users');
 		}
-		return $page.url.pathname.startsWith(path);
+		return pathname.startsWith(path);
 	};
 
 	onMount(async () => {
@@ -92,7 +93,7 @@
 							draggable="false"
 							href={item.href}
 							class="admin-nav-tab group flex items-center gap-2 min-w-fit px-3 py-2 rounded-t-lg transition-all duration-150 select-none relative
-								{isActive(item.path)
+								{isActive(item.path, pathname)
 									? 'text-white font-semibold admin-nav-tab-active'
 									: 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]'}"
 						>
@@ -104,7 +105,7 @@
 								stroke-width="2"
 								stroke-linecap="round"
 								stroke-linejoin="round"
-								class="size-4 flex-none {isActive(item.path) ? 'text-[#d4a574]' : 'text-gray-500 group-hover:text-gray-300'}"
+								class="size-4 flex-none {isActive(item.path, pathname) ? 'text-[#d4a574]' : 'text-gray-500 group-hover:text-gray-300'}"
 							>
 								{@html icons[item.icon]}
 							</svg>
