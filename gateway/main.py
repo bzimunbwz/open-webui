@@ -829,6 +829,7 @@ async def startup():
     load_all()
     seed_zai_models()
     seed_llm7_models()
+    seed_cloudflare_models()
     # Auto-sync models for all providers that have a base_url and API keys
     await auto_sync_provider_models()
     # Populate Provider-tab catalogs (model lists + FREE/PAID badges) last so the
@@ -999,6 +1000,111 @@ def seed_llm7_models():
         llm7_tiers[m["model"]] = m["tier"]
     provider_model_tiers["llm7"] = llm7_tiers
     save_provider_model_tiers()
+
+
+def seed_cloudflare_models():
+    """Seed the Cloudflare Workers AI provider + its text-generation models.
+
+    Cloudflare exposes an OpenAI-compatible endpoint at
+    /accounts/{account_id}/ai/v1, so the gateway routes to it normally. Add
+    multiple API tokens (api_keys list, via the admin Providers tab) for
+    automatic fallback/rotation.
+
+    Cloudflare bills by usage (Neurons) with a shared free daily allocation
+    rather than an official per-model free/paid split, so tiers below are a
+    size-based heuristic: small/efficient models = free, large flagship
+    models = paid. Source: https://developers.cloudflare.com/workers-ai/models/
+    """
+    global providers
+    account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip() or "f56a98e5b2b446001d531e4a63d01452"
+    base_url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1"
+
+    if "cloudflare" not in providers:
+        providers["cloudflare"] = {
+            "name": "Cloudflare Workers AI",
+            "base_url": base_url,
+            "api_keys": [k for k in [os.getenv("CLOUDFLARE_API_KEY", "").strip()] if k],
+        }
+        save_providers()
+        provider_status["cloudflare"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        key_index["cloudflare"] = 0
+        logger.info("Seeded Cloudflare Workers AI provider")
+    else:
+        bu = providers["cloudflare"].get("base_url", "")
+        if (not bu) or ("${" in bu) or ("/accounts//" in bu):
+            providers["cloudflare"]["base_url"] = base_url
+            save_providers()
+
+    # id -> tier  (size-based heuristic; see docstring)
+    CF_MODELS = {
+        # Flagship / large -> paid
+        "@cf/meta/llama-4-scout-17b-16e-instruct": "paid",
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast": "paid",
+        "@cf/meta/llama-3.1-70b-instruct": "paid",
+        "@cf/meta/llama-3.2-11b-vision-instruct": "paid",
+        "@cf/openai/gpt-oss-120b": "paid",
+        "@cf/openai/gpt-oss-20b": "paid",
+        "@cf/mistralai/mistral-small-3.1-24b-instruct": "paid",
+        "@cf/qwen/qwq-32b": "paid",
+        "@cf/qwen/qwen2.5-coder-32b-instruct": "paid",
+        "@cf/qwen/qwen3-30b-a3b-fp8": "paid",
+        "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b": "paid",
+        "@cf/google/gemma-3-12b-it": "paid",
+        # Small / efficient / beta -> free
+        "@cf/meta/llama-3.1-8b-instruct": "free",
+        "@cf/meta/llama-3.1-8b-instruct-fast": "free",
+        "@cf/meta/llama-3.1-8b-instruct-fp8": "free",
+        "@cf/meta/llama-3.1-8b-instruct-awq": "free",
+        "@cf/meta/llama-3-8b-instruct": "free",
+        "@cf/meta/llama-3-8b-instruct-awq": "free",
+        "@cf/meta/llama-3.2-1b-instruct": "free",
+        "@cf/meta/llama-3.2-3b-instruct": "free",
+        "@cf/meta/llama-2-7b-chat-fp16": "free",
+        "@cf/meta/llama-2-7b-chat-int8": "free",
+        "@cf/meta/llama-guard-3-8b": "free",
+        "@hf/meta-llama/meta-llama-3-8b-instruct": "free",
+        "@cf/mistral/mistral-7b-instruct-v0.1": "free",
+        "@hf/mistral/mistral-7b-instruct-v0.2": "free",
+        "@hf/google/gemma-7b-it": "free",
+        "@cf/qwen/qwen1.5-7b-chat-awq": "free",
+        "@cf/qwen/qwen1.5-14b-chat-awq": "free",
+        "@cf/qwen/qwen1.5-1.8b-chat": "free",
+        "@cf/qwen/qwen1.5-0.5b-chat": "free",
+        "@cf/microsoft/phi-2": "free",
+        "@cf/deepseek-ai/deepseek-math-7b-instruct": "free",
+        "@hf/thebloke/deepseek-coder-6.7b-instruct-awq": "free",
+        "@hf/thebloke/mistral-7b-instruct-v0.1-awq": "free",
+        "@hf/thebloke/llama-2-13b-chat-awq": "free",
+        "@hf/thebloke/neural-chat-7b-v3-1-awq": "free",
+        "@hf/thebloke/openhermes-2.5-mistral-7b-awq": "free",
+        "@hf/thebloke/zephyr-7b-beta-awq": "free",
+        "@hf/nousresearch/hermes-2-pro-mistral-7b": "free",
+        "@hf/nexusflow/starling-lm-7b-beta": "free",
+        "@cf/tinyllama/tinyllama-1.1b-chat-v1.0": "free",
+        "@cf/tiiuae/falcon-7b-instruct": "free",
+        "@cf/openchat/openchat-3.5-0106": "free",
+        "@cf/defog/sqlcoder-7b-2": "free",
+        "@cf/fblgit/una-cybertron-7b-v2-bf16": "free",
+        "@cf/thebloke/discolm-german-7b-v1-awq": "free",
+    }
+
+    model_ids = list(CF_MODELS.keys())
+    existing_cache = provider_models_cache.get("cloudflare", [])
+    merged = list(dict.fromkeys(existing_cache + model_ids))
+    if merged != existing_cache:
+        provider_models_cache["cloudflare"] = merged
+        save_provider_models_cache()
+
+    cf_tiers = provider_model_tiers.get("cloudflare", {})
+    changed = False
+    for mid, t in CF_MODELS.items():
+        if cf_tiers.get(mid) != t:
+            cf_tiers[mid] = t
+            changed = True
+    provider_model_tiers["cloudflare"] = cf_tiers
+    if changed:
+        save_provider_model_tiers()
+    logger.info(f"Seeded {len(CF_MODELS)} Cloudflare Workers AI models")
 
 
 def seed_provider_catalogs():

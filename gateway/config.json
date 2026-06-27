@@ -19,19 +19,35 @@
       "name": "FreeLLMAPI",
       "base_url": "${FREELLMAPI_BASE_URL}",
       "api_key": "${FREELLMAPI_API_KEY}"
+    },
+    "cloudflare": {
+      "name": "Cloudflare Workers AI",
+      "base_url": "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1",
+      "api_key": "${CLOUDFLARE_API_KEY}"
     }
   },
-
   "facade_models": [
     {
       "id": "claude-opus-4.8",
       "name": "Claude Opus 4.8",
       "tier": "paid",
       "backends": [
-        { "provider": "freemodel", "model": "claude-opus-4-8" },
-        { "provider": "llm7", "model": "claude-opus-4-8" },
-        { "provider": "zai", "model": "claude-opus-4-8" },
-        { "provider": "freellmapi", "model": "claude-opus-4-8" }
+        {
+          "provider": "freemodel",
+          "model": "claude-opus-4-8"
+        },
+        {
+          "provider": "llm7",
+          "model": "claude-opus-4-8"
+        },
+        {
+          "provider": "zai",
+          "model": "claude-opus-4-8"
+        },
+        {
+          "provider": "freellmapi",
+          "model": "claude-opus-4-8"
+        }
       ]
     },
     {
@@ -39,10 +55,22 @@
       "name": "Claude Opus 4.7",
       "tier": "paid",
       "backends": [
-        { "provider": "freemodel", "model": "claude-opus-4-7" },
-        { "provider": "llm7", "model": "claude-opus-4-7" },
-        { "provider": "zai", "model": "claude-opus-4-7" },
-        { "provider": "freellmapi", "model": "claude-opus-4-7" }
+        {
+          "provider": "freemodel",
+          "model": "claude-opus-4-7"
+        },
+        {
+          "provider": "llm7",
+          "model": "claude-opus-4-7"
+        },
+        {
+          "provider": "zai",
+          "model": "claude-opus-4-7"
+        },
+        {
+          "provider": "freellmapi",
+          "model": "claude-opus-4-7"
+        }
       ]
     },
     {
@@ -50,10 +78,22 @@
       "name": "Claude Sonnet 4.6",
       "tier": "paid",
       "backends": [
-        { "provider": "freemodel", "model": "claude-sonnet-4-6" },
-        { "provider": "llm7", "model": "claude-sonnet-4-6" },
-        { "provider": "freellmapi", "model": "claude-sonnet-4-6" },
-        { "provider": "zai", "model": "claude-sonnet-4-6" }
+        {
+          "provider": "freemodel",
+          "model": "claude-sonnet-4-6"
+        },
+        {
+          "provider": "llm7",
+          "model": "claude-sonnet-4-6"
+        },
+        {
+          "provider": "freellmapi",
+          "model": "claude-sonnet-4-6"
+        },
+        {
+          "provider": "zai",
+          "model": "claude-sonnet-4-6"
+        }
       ]
     },
     {
@@ -61,10 +101,22 @@
       "name": "ChatGPT Codex 5.5",
       "tier": "paid",
       "backends": [
-        { "provider": "freemodel", "model": "gpt-codex-5.5" },
-        { "provider": "llm7", "model": "gpt-codex-5.5" },
-        { "provider": "zai", "model": "gpt-codex-5.5" },
-        { "provider": "freellmapi", "model": "gpt-codex-5.5" }
+        {
+          "provider": "freemodel",
+          "model": "gpt-codex-5.5"
+        },
+        {
+          "provider": "llm7",
+          "model": "gpt-codex-5.5"
+        },
+        {
+          "provider": "zai",
+          "model": "gpt-codex-5.5"
+        },
+        {
+          "provider": "freellmapi",
+          "model": "gpt-codex-5.5"
+        }
       ]
     }
   ]
