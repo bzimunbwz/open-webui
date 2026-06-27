@@ -168,6 +168,15 @@
 		border-radius: 1rem;
 	}
 
+	/* Unify corner radius: every button + tab uses rounded-2xl (circular
+	   rounded-full controls are left untouched) */
+	:global(.admin-panel button:not([class*='rounded-full'])),
+	:global(.admin-panel a.admin-nav-tab),
+	:global(.admin-panel .admin-settings-tabs-container a),
+	:global(.admin-panel .admin-settings-tabs-container button) {
+		border-radius: 1rem;
+	}
+
 	:global(.admin-panel)::-webkit-scrollbar,
 	:global(.admin-panel *)::-webkit-scrollbar {
 		width: 8px;
