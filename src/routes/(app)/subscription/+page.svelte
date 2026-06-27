@@ -102,12 +102,12 @@
 
 <svelte:head><title>Subscription</title></svelte:head>
 
-<div class="flex flex-col h-full overflow-y-auto">
-	<div class="max-w-4xl mx-auto w-full px-6 py-8">
+<div class="flex flex-col h-full w-full flex-1 overflow-y-auto">
+	<div class="max-w-4xl lg:max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
 		<!-- Current subscription -->
 		{#if subscription && subscription.package_id !== 'free'}
 			<div class="mb-8 bg-gradient-to-r from-orange-900/30 to-purple-900/30 rounded-2xl p-6 border border-orange-800/50">
-				<div class="flex items-center justify-between">
+				<div class="flex items-center justify-between gap-3 flex-wrap">
 					<div>
 						<span class="text-xs text-orange-400 uppercase font-bold">Current Plan</span>
 						<h2 class="text-xl font-bold mt-1">{subscription.package_name || subscription.package_id}</h2>
@@ -120,11 +120,11 @@
 			</div>
 		{/if}
 
-		<h1 class="text-3xl font-bold mb-2 text-center">Choose Your Plan</h1>
+		<h1 class="text-2xl sm:text-3xl font-bold mb-2 text-center">Choose Your Plan</h1>
 		<p class="text-gray-500 text-center mb-6">Unlock premium AI models with a subscription</p>
 
 		<!-- Duration toggle -->
-		<div class="flex justify-center gap-2 mb-8">
+		<div class="flex flex-wrap justify-center gap-2 mb-8">
 			<button
 				on:click={() => (duration = 'monthly')}
 				class="px-4 py-2 rounded-lg text-sm transition {duration === 'monthly' ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}"
@@ -141,11 +141,11 @@
 			</div>
 		{:else}
 		<!-- Package Cards -->
-		<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+		<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
 			{#each packages as pkg (pkg.id)}
 				{@const isCurrentPlan = subscription?.package_id === pkg.id}
 				{@const price = duration === 'yearly' ? pkg.price_yearly : pkg.price_monthly}
-				<div class="bg-gray-900/50 rounded-2xl border {pkg.tier === 'pro' ? 'border-orange-600 ring-1 ring-orange-600/30' : 'border-gray-800'} p-6 flex flex-col relative">
+				<div class="bg-gray-900/50 rounded-2xl border {pkg.tier === 'pro' ? 'border-orange-600 ring-1 ring-orange-600/30' : 'border-gray-800'} p-5 sm:p-6 flex flex-col relative">
 					{#if pkg.tier === 'pro'}
 						<div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-orange-600 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase">Popular</div>
 					{/if}

@@ -289,6 +289,7 @@ def load_payment_settings():
             "bep20_address": "",
             "trc20_address": "",
             "binance_proxy": "",
+            "upgrade_url": "",
         }
 
 
@@ -1161,6 +1162,56 @@ async def list_models(request: Request):
     return {"object": "list", "data": data}
 
 
+def get_upgrade_url() -> str:
+    """Where the in-chat upsell sends users to subscribe. Configurable via
+    payment_settings['upgrade_url'] or the UPGRADE_URL env var."""
+    return (payment_settings.get("upgrade_url") or os.getenv("UPGRADE_URL", "")
+            or "/subscription").strip()
+
+
+def build_upsell_message(model_name: str) -> str:
+    """Friendly markdown shown in chat when a non-subscriber picks a paid model."""
+    lines = [f"🔒 **{model_name}** is a premium model and needs an active subscription.\n"]
+    plans = []
+    for pkg in sorted(packages.values(), key=lambda p: p.get("order", 99)):
+        if pkg.get("tier", "free") == "free" or not pkg.get("active", True):
+            continue
+        price = pkg.get("price_monthly")
+        price_str = f"${price}/mo" if price not in (None, "", 0) else ""
+        plans.append(f"- **{pkg.get('name', pkg.get('id'))}**" + (f" — {price_str}" if price_str else ""))
+    if plans:
+        lines.append("**Available plans:**")
+        lines.extend(plans)
+        lines.append("")
+    lines.append(f"👉 [**Upgrade your plan**]({get_upgrade_url()})")
+    free_names = [m.get("name", mid) for mid, m in facade_models.items() if get_model_tier(mid) == "free"]
+    if free_names:
+        lines.append(f"\nFree models you can use right now: {', '.join(free_names[:6])}.")
+    return "\n".join(lines)
+
+
+def subscription_required_response(model_name: str, model_id: str, stream: bool):
+    """Return the upsell as a normal 200 chat completion (stream or JSON) so the
+    stock Open WebUI UI renders it as a clean assistant message, not a red error."""
+    content = build_upsell_message(model_name)
+    created = int(time.time())
+    cid = f"chatcmpl-sub-{created}"
+    if stream:
+        def gen():
+            first = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
+                     "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}]}
+            yield f"data: {json.dumps(first)}\n\n"
+            last = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+            yield f"data: {json.dumps(last)}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(gen(), media_type="text/event-stream")
+    payload = {"id": cid, "object": "chat.completion", "created": created, "model": model_id,
+               "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+               "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
+    return JSONResponse(payload)
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
@@ -1174,17 +1225,9 @@ async def chat_completions(request: Request):
 
     tier = get_model_tier(requested_model)
 
-    # Check subscription access
+    # Check subscription access — return a friendly in-chat upsell instead of a raw 403
     if tier != "free" and not can_access_model(user_email, requested_model):
-        raise HTTPException(
-            status_code=403,
-            detail=json.dumps({
-                "error": "subscription_required",
-                "message": f"'{facade['name']}' requires a subscription. Please upgrade to use this model.",
-                "model": requested_model,
-                "required_tier": "paid",
-            })
-        )
+        return subscription_required_response(facade["name"], requested_model, stream)
 
     # Check if request is from admin (skip identity injection for admin)
     is_admin = request.headers.get("Authorization", "") == f"Bearer {ADMIN_API_KEY}"
@@ -1992,7 +2035,7 @@ async def admin_get_payment_settings(request: Request):
 async def admin_update_payment_settings(request: Request):
     check_admin(request)
     body = await request.json()
-    for key in ["binance_uid", "binance_api_key", "binance_api_secret", "bep20_address", "trc20_address", "binance_proxy"]:
+    for key in ["binance_uid", "binance_api_key", "binance_api_secret", "bep20_address", "trc20_address", "binance_proxy", "upgrade_url"]:
         if key in body:
             payment_settings[key] = body[key]
     save_payment_settings()
