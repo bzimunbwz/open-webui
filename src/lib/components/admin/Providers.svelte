@@ -44,6 +44,8 @@
 	let bulkUploadTarget = '';
 	let bulkText = '';
 	let bulkAccountsText = '';
+	let cfAccountId = '';
+	let cfAccountKey = '';
 	let searchQuery = '';
 	let modelSearchQuery = '';
 	let activeTab: 'providers' | 'models' = 'providers';
@@ -279,6 +281,18 @@
 	function removeEndpoint(provider: any, idx: number) {
 		provider.endpoints = (provider.endpoints || []).filter((_: any, i: number) => i !== idx);
 		providers = providers;
+	}
+
+	function addSingleAccount(provider: any) {
+		if (!cfAccountId.trim() || !cfAccountKey.trim()) { toast.error('Enter account ID and API key'); return; }
+		if (!provider.endpoints) provider.endpoints = [];
+		const entry = provider.id === 'cloudflare'
+			? { account_id: cfAccountId.trim(), api_key: cfAccountKey.trim() }
+			: { base_url: cfAccountId.trim(), api_key: cfAccountKey.trim() };
+		provider.endpoints = [...provider.endpoints, entry];
+		providers = providers;
+		cfAccountId = ''; cfAccountKey = '';
+		toast.success('Account added — click Save Config');
 	}
 
 	function bulkAddAccounts(provider: any) {
@@ -680,6 +694,18 @@
 											<input bind:value={provider.base_url}
 												class="w-full rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm font-mono" />
 										</div>
+
+										{#if provider.id === 'cloudflare'}
+											<div class="mb-3">
+												<label class="text-xs text-gray-400 mb-1 block">Add account (Account ID + API token)</label>
+												<div class="flex gap-2">
+													<input bind:value={cfAccountId} placeholder="Account ID" class="flex-1 rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm font-mono" />
+													<input bind:value={cfAccountKey} placeholder="API token" type="password" class="flex-1 rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-sm font-mono" />
+													<button on:click={() => addSingleAccount(provider)} class="px-3 py-2 bg-green-700 text-white text-xs rounded-lg hover:bg-green-600 transition whitespace-nowrap">+ Add account</button>
+												</div>
+												<p class="text-[11px] text-gray-600 mt-1">Added to the accounts list below. The gateway fills your account id into the Base URL template and rotates across accounts.</p>
+											</div>
+										{/if}
 
 										<!-- Bulk key textarea -->
 										<div class="mb-3">
