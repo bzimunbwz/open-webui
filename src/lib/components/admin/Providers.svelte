@@ -43,6 +43,7 @@
 	let expandedProviders: Record<string, boolean> = {};
 	let bulkUploadTarget = '';
 	let bulkText = '';
+	let bulkAccountsText = '';
 	let searchQuery = '';
 	let modelSearchQuery = '';
 	let activeTab: 'providers' | 'models' = 'providers';
@@ -278,6 +279,26 @@
 	function removeEndpoint(provider: any, idx: number) {
 		provider.endpoints = (provider.endpoints || []).filter((_: any, i: number) => i !== idx);
 		providers = providers;
+	}
+
+	function bulkAddAccounts(provider: any) {
+		if (!bulkAccountsText.trim()) { toast.error('Paste accounts first'); return; }
+		if (!provider.endpoints) provider.endpoints = [];
+		const lines = bulkAccountsText.split('\n').map((l: string) => l.trim()).filter((l: string) => l && !l.startsWith('#'));
+		const added: any[] = [];
+		for (const line of lines) {
+			const comma = line.indexOf(',');
+			if (comma === -1) continue;
+			const id = line.slice(0, comma).trim();
+			const key = line.slice(comma + 1).trim();
+			if (!id || !key) continue;
+			added.push(provider.id === 'cloudflare' ? { account_id: id, api_key: key } : { base_url: id, api_key: key });
+		}
+		if (!added.length) { toast.error('No valid "id, apikey" lines found'); return; }
+		provider.endpoints = [...provider.endpoints, ...added];
+		providers = providers;
+		bulkAccountsText = '';
+		toast.success(`Added ${added.length} account(s) — click Save Config`);
 	}
 
 	async function bulkAddKeys() {
@@ -726,6 +747,10 @@
 										<button on:click={() => addEndpoint(provider)} class="text-xs px-2 py-0.5 bg-gray-700 rounded hover:bg-gray-600 transition">+ Add account</button>
 									</div>
 									<p class="text-[11px] text-gray-600 mb-2">When one account hits its quota (429/402) the request rotates to the next, so responses don't stop. Click Save Config after editing.</p>
+									<div class="flex gap-2 mb-2">
+										<textarea bind:value={bulkAccountsText} rows="2" placeholder="Bulk add — one per line:  accountid, apikey" class="flex-1 text-xs bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 font-mono outline-none"></textarea>
+										<button on:click={() => bulkAddAccounts(provider)} class="text-xs px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 transition self-start whitespace-nowrap">Bulk add</button>
+									</div>
 									{#if (provider.endpoints || []).length > 0}
 										<div class="flex flex-col gap-1.5">
 											{#each provider.endpoints as ep, i}
