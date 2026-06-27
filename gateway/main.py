@@ -430,26 +430,34 @@ def _cf_base(account_id: str) -> str:
 def list_endpoints(pid: str):
     """All (base_url, api_key) attempts for a provider. Combines the default
     base_url paired with each api_key, plus explicit `endpoints` entries — each
-    {base_url|account_id, api_key} — so rotation can fall back across *accounts*
-    (different base_url), which is what dodges a per-account quota."""
+    {base_url|account_id, api_key}. If base_url contains the placeholder
+    `{account_id}` it is a TEMPLATE: each account's id is substituted in, so
+    rotation auto-fills the account id and can fall back across accounts (which
+    dodges a per-account quota)."""
     prov = providers.get(pid, {})
     base = prov.get("base_url", "")
     aks = prov.get("api_keys", [])
     if isinstance(aks, str):
         aks = [aks] if aks else []
         prov["api_keys"] = aks
+    base_tpl = "{account_id}" in base
     eps = []
     for k in aks:
-        if base:
+        if base and not base_tpl:  # a plain key needs a concrete base_url
             eps.append((base, k))
     for ep in (prov.get("endpoints") or []):
+        acc = ep.get("account_id", "")
         bu = ep.get("base_url", "")
-        if not bu and ep.get("account_id") and pid == "cloudflare":
-            bu = _cf_base(ep["account_id"])
-        bu = bu or base
-        if bu:
+        if not bu:
+            if acc and base_tpl:
+                bu = base.replace("{account_id}", acc)
+            elif acc and pid == "cloudflare":
+                bu = _cf_base(acc)
+            elif not base_tpl:
+                bu = base
+        if bu and "{account_id}" not in bu:
             eps.append((bu, ep.get("api_key", "")))
-    if not eps and base:
+    if not eps and base and not base_tpl:
         eps.append((base, ""))
     return eps
 
@@ -1104,26 +1112,26 @@ def seed_cloudflare_models():
     models = paid. Source: https://developers.cloudflare.com/workers-ai/models/
     """
     global providers
-    # Account id is NOT hardcoded: it comes only from the CLOUDFLARE_ACCOUNT_ID env
-    # var (optional) or from what the admin enters in the Providers UI (base_url /
-    # the per-account "endpoints" section).
+    # No account id is hardcoded. base_url is a TEMPLATE with an {account_id}
+    # placeholder; each account in the Providers UI supplies its own id + token,
+    # and the gateway substitutes the id in during rotation.
+    template = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
     account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
-    base_url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1" if account else ""
+    key = os.getenv("CLOUDFLARE_API_KEY", "").strip()
 
     if "cloudflare" not in providers:
         providers["cloudflare"] = {
             "name": "Cloudflare Workers AI",
-            "base_url": base_url,
-            "api_keys": [k for k in [os.getenv("CLOUDFLARE_API_KEY", "").strip()] if k],
-            "endpoints": [],
+            "base_url": template,
+            "api_keys": [],
+            "endpoints": ([{"account_id": account, "api_key": key}] if (account and key) else []),
         }
         save_providers()
         provider_status["cloudflare"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
         key_index["cloudflare"] = 0
-        logger.info("Seeded Cloudflare Workers AI provider (account set by admin)")
-    elif account and not providers["cloudflare"].get("base_url"):
-        # Only fill base_url from the env var when the admin hasn't set one
-        providers["cloudflare"]["base_url"] = base_url
+        logger.info("Seeded Cloudflare Workers AI provider (base_url template; accounts set by admin)")
+    elif not providers["cloudflare"].get("base_url"):
+        providers["cloudflare"]["base_url"] = template
         save_providers()
 
     # id -> tier  (size-based heuristic; see docstring)
