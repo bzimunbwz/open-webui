@@ -595,6 +595,9 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                         except Exception:
                             pass
                         await resp.aclose(); await client.aclose()
+                        if sc == 404 and ("could not route" in txt.lower() or "object identifier" in txt.lower()):
+                            mark_endpoint_failed(pid, base_url, api_key)
+                            last = "HTTP 404 invalid account/endpoint (rotating)"; continue
                         mark_model_failure(pid, backend_model)
                         note(txt or f"HTTP {sc}", sc); return None
                     mark_success(pid); mark_model_success(pid, backend_model)
@@ -613,6 +616,9 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
                     if sc >= 400:
                         txt = resp.text[:200]
                         await client.aclose()
+                        if sc == 404 and ("could not route" in txt.lower() or "object identifier" in txt.lower()):
+                            mark_endpoint_failed(pid, base_url, api_key)
+                            last = "HTTP 404 invalid account/endpoint (rotating)"; continue
                         mark_model_failure(pid, backend_model)
                         note(txt or f"HTTP {sc}", sc); return None
                     data = resp.json()
