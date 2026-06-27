@@ -25,6 +25,7 @@ import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 
+import asyncio
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -2451,6 +2452,97 @@ async def admin_test_providers(request: Request):
 
     all_ok = bool(results) and all(v.get("ok") for v in results.values())
     return {"ok": all_ok, "saved": saved, "results": results}
+
+
+@app.post("/admin/test-models")
+async def admin_test_models(request: Request):
+    """Test every model in a provider's list with a tiny chat completion, so the
+    admin can see which models actually work as facade backends.
+
+    Body (all optional):
+      {"provider": "<pid>"}            test one provider
+      {"providers": ["llm7","zai"]}    test several
+      (none)                            test all configured providers
+      {"limit": N}                     cap models per provider
+      {"concurrency": N}               parallel requests (default 6)
+    Returns per-model ok/status/latency/error.
+    """
+    check_admin(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if body.get("provider"):
+        pids = [body["provider"]]
+    elif body.get("providers"):
+        pids = list(body["providers"])
+    else:
+        pids = list(providers.keys())
+    limit = int(body.get("limit", 0) or 0)
+    max_tokens = int(body.get("max_tokens", 5) or 5)
+    sem = asyncio.Semaphore(int(body.get("concurrency", 6) or 6))
+
+    async def test_one(base_url, api_key, model):
+        async with sem:
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": "Reply with just: OK"}],
+                "max_tokens": max_tokens,
+                "stream": False,
+            }
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+            entry = {}
+            try:
+                t0 = time.time()
+                async with httpx.AsyncClient(timeout=25) as client:
+                    r = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+                entry["status"] = r.status_code
+                entry["latency_ms"] = int((time.time() - t0) * 1000)
+                entry["ok"] = r.status_code == 200
+                if r.status_code != 200:
+                    try:
+                        j = r.json()
+                        if isinstance(j.get("error"), dict):
+                            entry["error"] = j["error"].get("message", "")[:160]
+                        elif j.get("errors"):
+                            entry["error"] = str(j["errors"])[:160]
+                        else:
+                            entry["error"] = str(j)[:160]
+                    except Exception:
+                        entry["error"] = r.text[:160]
+            except Exception as e:
+                entry["ok"] = False
+                entry["error"] = f"{type(e).__name__}: {e}"
+            return entry
+
+    result = {}
+    for pid in pids:
+        prov = providers.get(pid, {})
+        base_url = resolve_env(prov.get("base_url", "")).rstrip("/")
+        keys = prov.get("api_keys", [])
+        api_key = keys[0] if keys else ""
+        models = provider_models_cache.get(pid, [])
+        if limit > 0:
+            models = models[:limit]
+        if not base_url or not api_key:
+            result[pid] = {"error": "no base_url or api_key configured", "models": {}}
+            continue
+        if not models:
+            result[pid] = {"error": "no models cached (sync models first)", "models": {}}
+            continue
+        entries = await asyncio.gather(*[test_one(base_url, api_key, m) for m in models])
+        model_map = dict(zip(models, entries))
+        ok_count = sum(1 for e in entries if e.get("ok"))
+        result[pid] = {
+            "total": len(models),
+            "ok": ok_count,
+            "failed": len(models) - ok_count,
+            "working_models": [m for m, e in model_map.items() if e.get("ok")],
+            "models": model_map,
+        }
+        logger.info(f"test-models {pid}: {ok_count}/{len(models)} working")
+
+    return {"results": result}
 
 
 
