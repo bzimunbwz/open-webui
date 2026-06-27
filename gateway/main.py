@@ -481,16 +481,22 @@ def is_model_available(pid: str, model: str) -> bool:
 RETRYABLE = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 
 
-async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, timeout: float = 120.0):
+async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, timeout: float = 120.0, errors=None):
+    def note(reason, status=None):
+        if errors is not None:
+            errors.append({"provider": pid, "model": backend_model, "status": status, "error": str(reason)[:200]})
+
     prov = providers.get(pid)
-    if not prov or not prov.get("base_url") or not is_available(pid):
-        return None
+    if not prov or not prov.get("base_url"):
+        note("provider has no base_url"); return None
+    if not is_available(pid):
+        note("provider in cooldown"); return None
     if not is_model_available(pid, backend_model):
-        logger.debug(f"Skipping {pid}/{backend_model} (in per-model cooldown)")
-        return None
+        note("model in per-model cooldown (recent failures)"); return None
 
     keys = prov.get("api_keys", [])
     attempts = max(len(keys), 1)
+    last = "no usable key"
 
     for attempt in range(attempts):
         api_key = get_next_key(pid)
@@ -498,92 +504,76 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-
         req_body = {**body, "model": backend_model}
 
         try:
-            # Use generous timeouts for streaming: no read timeout (SSE tokens arrive slowly)
             if stream:
                 client_timeout = httpx.Timeout(connect=15.0, read=None, write=15.0, pool=15.0)
             else:
                 client_timeout = httpx.Timeout(timeout)
-
-            # Don't use 'async with' — we need the client alive for streaming
             client = httpx.AsyncClient(timeout=client_timeout)
             try:
                 if stream:
                     req = client.build_request("POST", url, json=req_body, headers=headers)
                     resp = await client.send(req, stream=True)
-                    if resp.status_code in (429, 401):
-                        await resp.aclose()
-                        await client.aclose()
-                        mark_key_failed(pid, api_key)
-                        continue
-                    if resp.status_code in RETRYABLE:
-                        await resp.aclose()
-                        await client.aclose()
+                    sc = resp.status_code
+                    if sc in (429, 401):
+                        await resp.aclose(); await client.aclose()
+                        mark_key_failed(pid, api_key); last = f"HTTP {sc} (rotating key)"; continue
+                    if sc in RETRYABLE:
+                        await resp.aclose(); await client.aclose()
+                        mark_model_failure(pid, backend_model); mark_failure(pid)
+                        last = f"HTTP {sc} (server error)"; continue
+                    if sc >= 400:
+                        txt = ""
+                        try:
+                            await resp.aread(); txt = resp.text[:200]
+                        except Exception:
+                            pass
+                        await resp.aclose(); await client.aclose()
                         mark_model_failure(pid, backend_model)
-                        mark_failure(pid)
-                        return None
-                    if resp.status_code >= 400:
-                        # Client error (bad/gated/deprecated model) -> per-model only,
-                        # do NOT cool down the whole provider
-                        await resp.aclose()
-                        await client.aclose()
-                        mark_model_failure(pid, backend_model)
-                        return None
-
-                    mark_success(pid)
-                    mark_model_success(pid, backend_model)
+                        note(txt or f"HTTP {sc}", sc); return None
+                    mark_success(pid); mark_model_success(pid, backend_model)
                     return {"client": client, "resp": resp, "stream": True}
                 else:
                     resp = await client.post(url, json=req_body, headers=headers)
-                    if resp.status_code in (429, 401):
+                    sc = resp.status_code
+                    if sc in (429, 401):
                         await client.aclose()
-                        mark_key_failed(pid, api_key)
-                        continue
-                    if resp.status_code in RETRYABLE:
+                        mark_key_failed(pid, api_key); last = f"HTTP {sc} (rotating key)"; continue
+                    if sc in RETRYABLE:
                         await client.aclose()
-                        mark_model_failure(pid, backend_model)
-                        mark_failure(pid)
-                        return None
-                    if resp.status_code >= 400:
-                        # Client error (bad/gated/deprecated model) -> per-model only,
-                        # do NOT cool down the whole provider
+                        mark_model_failure(pid, backend_model); mark_failure(pid)
+                        last = f"HTTP {sc} (server error)"; continue
+                    if sc >= 400:
+                        txt = resp.text[:200]
                         await client.aclose()
                         mark_model_failure(pid, backend_model)
-                        return None
+                        note(txt or f"HTTP {sc}", sc); return None
 
-                    # Validate non-streaming response has content
                     data = resp.json()
                     choices = data.get("choices", [])
-                    msg = choices[0].get("message", {}) if choices else {}
-                    # Accept if content OR reasoning_content is present (Z.AI thinking mode)
-                    if not choices or (not msg.get("content") and not msg.get("reasoning_content")):
-                        logger.warning(f"Provider {pid}/{backend_model} returned empty response")
+                    m = choices[0].get("message", {}) if choices else {}
+                    if not choices or (not m.get("content") and not m.get("reasoning_content")):
                         await client.aclose()
                         mark_model_failure(pid, backend_model)
-                        return None
+                        last = "empty completion"; continue  # retry with next key
 
-                    mark_success(pid)
-                    mark_model_success(pid, backend_model)
+                    mark_success(pid); mark_model_success(pid, backend_model)
                     await client.aclose()
                     return {"data": data, "stream": False}
 
             except Exception as inner_e:
-                await client.aclose()
-                raise inner_e
+                await client.aclose(); raise inner_e
 
         except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
-            mark_failure(pid)
-            logger.warning(f"Provider {pid} error: {e}")
-            return None
+            mark_model_failure(pid, backend_model)
+            last = f"{type(e).__name__}"; continue  # retry with next key
         except Exception as e:
-            mark_failure(pid)
-            logger.error(f"Provider {pid} unexpected: {e}")
-            return None
+            mark_model_failure(pid, backend_model)
+            last = f"{type(e).__name__}: {e}"; continue
 
-    mark_failure(pid)
+    note(last)
     return None
 
 
@@ -1404,12 +1394,13 @@ async def chat_completions(request: Request):
     # Drop any backend whose model has been disabled in the provider list
     expanded_backends = [b for b in expanded_backends if is_model_enabled(b["provider"], b["model"])]
 
+    backend_errors = []
     for backend in expanded_backends:
         pid = backend["provider"]
         bmodel = backend["model"]
         logger.info(f"Trying {facade['name']} → {pid}/{bmodel}")
 
-        result = await try_provider(pid, bmodel, body, stream=stream)
+        result = await try_provider(pid, bmodel, body, stream=stream, errors=backend_errors)
         if result is not None:
             if result.get("stream"):
                 http_resp = result["resp"]
@@ -1438,7 +1429,7 @@ async def chat_completions(request: Request):
                     headers={"X-Gateway-Provider": pid, "X-Model-Tier": tier},
                 )
 
-    raise HTTPException(status_code=503, detail=f"All providers failed for '{requested_model}'")
+    raise HTTPException(status_code=503, detail={"error": "all_providers_failed", "model": requested_model, "attempts": backend_errors})
 
 
 # ── User Subscription Routes ────────────────────────────────────────────────
