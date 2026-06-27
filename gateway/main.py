@@ -1730,7 +1730,12 @@ async def admin_reset_provider(provider_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
     mark_success(provider_id)
     key_index[provider_id] = 0
-    return {"status": "reset", "provider": provider_id}
+    # Also clear per-model and per-key cooldowns so the provider fully unsticks
+    for k in [k for k in list(model_failures) if k.startswith(f"{provider_id}/")]:
+        model_failures.pop(k, None)
+    for k in [k for k in list(key_status) if k.startswith(f"{provider_id}#")]:
+        key_status.pop(k, None)
+    return {"status": "reset", "provider": provider_id, "cleared": "provider + model + key cooldowns"}
 
 
 @app.get("/admin/providers/{provider_id}/models")
