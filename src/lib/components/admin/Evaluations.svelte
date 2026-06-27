@@ -52,18 +52,17 @@
 	<div class="flex flex-col lg:flex-row w-full h-full pb-2 lg:space-x-4">
 		<div
 			id="users-tabs-container"
-			class="tabs mx-[16px] lg:mx-0 lg:px-[16px] flex flex-row overflow-x-auto gap-2.5 max-w-full lg:gap-1 lg:flex-col lg:flex-none lg:w-50 dark:text-gray-200 text-sm font-medium text-left scrollbar-none"
+			class="px-3 lg:px-3 lg:pt-1 flex flex-row lg:flex-col gap-1 overflow-x-auto max-w-full lg:flex-none lg:w-52 scrollbar-none text-sm font-medium"
 		>
 			<a
 				id="leaderboard"
 				href="/admin/evaluations/leaderboard"
 				draggable="false"
-				class="px-0.5 py-1 min-w-fit rounded-lg lg:flex-none flex text-right transition select-none {selectedTab ===
-				'leaderboard'
-					? ''
-					: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
+				class="group flex items-center gap-2.5 px-3 py-2 rounded-xl min-w-fit transition select-none whitespace-nowrap {selectedTab === 'leaderboard'
+			? 'bg-[#d4a574]/15 text-gray-900 dark:text-white font-semibold'
+			: 'text-gray-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-gray-800 dark:hover:text-gray-200'}"
 			>
-				<div class=" self-center mr-2">
+				<div class="self-center">
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
 						viewBox="0 0 16 16"
@@ -84,12 +83,11 @@
 				id="feedback"
 				href="/admin/evaluations/feedback"
 				draggable="false"
-				class="px-0.5 py-1 min-w-fit rounded-lg lg:flex-none flex text-right transition select-none {selectedTab ===
-				'feedback'
-					? ''
-					: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
+				class="group flex items-center gap-2.5 px-3 py-2 rounded-xl min-w-fit transition select-none whitespace-nowrap {selectedTab === 'feedback'
+			? 'bg-[#d4a574]/15 text-gray-900 dark:text-white font-semibold'
+			: 'text-gray-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-gray-800 dark:hover:text-gray-200'}"
 			>
-				<div class=" self-center mr-2">
+				<div class="self-center">
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
 						viewBox="0 0 16 16"
