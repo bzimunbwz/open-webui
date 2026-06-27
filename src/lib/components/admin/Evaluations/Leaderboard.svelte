@@ -100,133 +100,117 @@
 		}
 		return direction === 'asc' ? aVal - bVal : bVal - aVal;
 	});
+
+	const medal = (rank: number) => (rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '');
+
+	const columns = [
+		{ key: 'rating', label: 'RK', class: 'w-12' },
+		{ key: 'name', label: 'Model', class: '' },
+		{ key: 'rating', label: 'Rating', class: 'text-right' },
+		{ key: 'won', label: 'Won', class: 'text-right w-20' },
+		{ key: 'lost', label: 'Lost', class: 'text-right w-20' }
+	];
 </script>
 
 <ModelModal bind:show={showModal} model={selectedModel} onClose={closeModal} />
 
-<div
-	class="pt-0.5 pb-1 gap-1 flex flex-col md:flex-row justify-between sticky top-0 z-10 bg-white dark:bg-gray-900"
->
-	<div class="flex items-center text-xl font-medium px-0.5 gap-2 shrink-0">
-		{$i18n.t('Leaderboard')}
-		<span class="text-lg text-gray-500">{rankedModels.length}</span>
+<div class="w-full">
+	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+		<div class="flex items-center gap-2.5">
+			<h1 class="text-xl font-semibold text-gray-900 dark:text-white">{$i18n.t('Leaderboard')}</h1>
+			<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-gray-600 dark:text-gray-300">
+				{rankedModels.length}
+			</span>
+		</div>
+
+		<Tooltip content={$i18n.t('Re-rank models by topic similarity')}>
+			<div class="flex items-center w-full sm:w-64 px-3 py-1.5 rounded-xl bg-gray-100 dark:bg-gray-850 border border-gray-200 dark:border-gray-800 focus-within:border-[#d4a574] transition">
+				<Search className="size-3.5 text-gray-400 flex-none" />
+				<input class="w-full text-sm ml-2 outline-hidden bg-transparent" bind:value={query} placeholder={$i18n.t('Search')} />
+			</div>
+		</Tooltip>
 	</div>
-	<Tooltip content={$i18n.t('Re-rank models by topic similarity')}>
-		<div class="flex flex-1">
-			<Search className="size-3 ml-1 mr-3 self-center" />
-			<input
-				class="w-full text-sm pr-4 py-1 rounded-r-xl outline-hidden bg-transparent"
-				bind:value={query}
-				placeholder={$i18n.t('Search')}
-			/>
-		</div>
-	</Tooltip>
-</div>
 
-<div
-	class="scrollbar-hidden relative whitespace-nowrap overflow-x-auto max-w-full rounded-sm min-h-[100px]"
->
-	{#if loading}
-		<div
-			class="absolute inset-0 flex items-center justify-center z-10 bg-white/50 dark:bg-gray-900/50"
-		>
-			<Spinner className="size-5" />
-		</div>
-	{/if}
+	<div class="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden relative min-h-[120px]">
+		{#if loading}
+			<div class="absolute inset-0 flex items-center justify-center z-10 bg-white/50 dark:bg-gray-900/50">
+				<Spinner className="size-5" />
+			</div>
+		{/if}
 
-	{#if !rankedModels.length && !loading}
-		<div class="text-center text-xs text-gray-500 py-1">{$i18n.t('No models found')}</div>
-	{:else if rankedModels.length}
-		<table
-			class="w-full text-sm text-left text-gray-500 dark:text-gray-400 {loading
-				? 'opacity-20'
-				: ''}"
-		>
-			<thead class="text-xs text-gray-800 uppercase bg-transparent dark:text-gray-200">
-				<tr class="border-b-[1.5px] border-gray-50 dark:border-gray-850/30">
-					{#each [{ key: 'rating', label: 'RK', class: 'w-3' }, { key: 'name', label: 'Model', class: '' }, { key: 'rating', label: 'Rating', class: 'text-right w-fit' }, { key: 'won', label: 'Won', class: 'text-right w-5' }, { key: 'lost', label: 'Lost', class: 'text-right w-5' }] as col}
-						<th
-							scope="col"
-							class="px-2.5 py-2 cursor-pointer select-none {col.class}"
-							on:click={() => toggleSort(col.key)}
-						>
-							<div
-								class="flex gap-1.5 items-center {col.class.includes('right') ? 'justify-end' : ''}"
-							>
-								{$i18n.t(col.label)}
-								{#if orderBy === col.key}
-									{#if direction === 'asc'}<ChevronUp className="size-2" />{:else}<ChevronDown
-											className="size-2"
-										/>{/if}
-								{:else}
-									<span class="invisible"><ChevronUp className="size-2" /></span>
-								{/if}
-							</div>
-						</th>
-					{/each}
-				</tr>
-			</thead>
-			<tbody>
-				{#each sortedModels as model, idx (model.id)}
-					<tr
-						class="bg-white dark:bg-gray-900 text-xs group cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-850/50 transition"
-						on:click={() => openModal(model)}
-					>
-						<td class="px-3 py-1.5 font-medium text-gray-900 dark:text-white">
-							{model.rating !== '-' ? idx + 1 : '-'}
-						</td>
-						<td class="px-3 py-1.5">
-							<div class="flex items-center gap-2">
-								<img
-									src="{WEBUI_API_BASE_URL}/models/model/profile/image?id={model.id}"
-									alt={model.name}
-									class="size-5 rounded-full object-cover shrink-0"
-									on:error={(e) => {
-										e.target.src = '/favicon.png';
-									}}
-								/>
-								<Tooltip content={`${model.name} (${model.id})`} placement="top-start">
-									<span class="font-medium text-gray-800 dark:text-gray-200 line-clamp-1"
-										>{model.name}</span
-									>
-								</Tooltip>
-							</div>
-						</td>
-						<td class="px-3 py-1.5 text-right font-medium text-gray-900 dark:text-white">
-							{model.rating}
-						</td>
-						<td class="px-3 py-1.5 text-right font-medium text-green-500 w-10">
-							{#if model.stats.won === '-'}-{:else}
-								<span class="hidden group-hover:inline"
-									>{((Number(model.stats.won) / model.stats.count) * 100).toFixed(1)}%</span
-								>
-								<span class="group-hover:hidden">{model.stats.won}</span>
-							{/if}
-						</td>
-						<td class="px-3 py-1.5 text-right font-medium text-red-500 w-10">
-							{#if model.stats.lost === '-'}-{:else}
-								<span class="hidden group-hover:inline"
-									>{((Number(model.stats.lost) / model.stats.count) * 100).toFixed(1)}%</span
-								>
-								<span class="group-hover:hidden">{model.stats.lost}</span>
-							{/if}
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	{/if}
-</div>
+		{#if !rankedModels.length && !loading}
+			<div class="text-center text-sm text-gray-500 py-12">{$i18n.t('No models found')}</div>
+		{:else if rankedModels.length}
+			<div class="scrollbar-hidden relative whitespace-nowrap overflow-x-auto max-w-full">
+				<table class="w-full text-sm text-left text-gray-600 dark:text-gray-300 {loading ? 'opacity-20' : ''}">
+					<thead class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-850/60">
+						<tr class="border-b border-gray-200 dark:border-gray-800">
+							{#each columns as col}
+								<th scope="col" class="px-4 py-3 cursor-pointer select-none font-semibold {col.class}" on:click={() => toggleSort(col.key)}>
+									<div class="flex gap-1.5 items-center {col.class.includes('right') ? 'justify-end' : ''}">
+										{$i18n.t(col.label)}
+										{#if orderBy === col.key}
+											{#if direction === 'asc'}<ChevronUp className="size-2" />{:else}<ChevronDown className="size-2" />{/if}
+										{:else}
+											<span class="invisible"><ChevronUp className="size-2" /></span>
+										{/if}
+									</div>
+								</th>
+							{/each}
+						</tr>
+					</thead>
+					<tbody>
+						{#each sortedModels as model, idx (model.id)}
+							{@const rank = model.rating !== '-' ? idx + 1 : null}
+							<tr class="border-b border-gray-100 dark:border-gray-850/60 last:border-0 group cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-850/40 transition" on:click={() => openModal(model)}>
+								<td class="px-4 py-2.5 font-semibold text-gray-900 dark:text-white">
+									{#if rank && rank <= 3}
+										<span class="text-base">{medal(rank)}</span>
+									{:else}
+										{rank ?? '-'}
+									{/if}
+								</td>
+								<td class="px-4 py-2.5">
+									<div class="flex items-center gap-2.5">
+										<img src="{WEBUI_API_BASE_URL}/models/model/profile/image?id={model.id}" alt={model.name} class="size-6 rounded-full object-cover shrink-0" on:error={(e) => { e.target.src = '/favicon.png'; }} />
+										<Tooltip content={`${model.name} (${model.id})`} placement="top-start">
+											<span class="font-medium text-gray-800 dark:text-gray-200 line-clamp-1">{model.name}</span>
+										</Tooltip>
+									</div>
+								</td>
+								<td class="px-4 py-2.5 text-right">
+									{#if model.rating === '-'}
+										<span class="text-gray-400">-</span>
+									{:else}
+										<span class="inline-block font-semibold text-gray-900 dark:text-white px-2 py-0.5 rounded-lg bg-[#d4a574]/15">{model.rating}</span>
+									{/if}
+								</td>
+								<td class="px-4 py-2.5 text-right font-medium text-green-500">
+									{#if model.stats.won === '-'}-{:else}
+										<span class="hidden group-hover:inline">{((Number(model.stats.won) / model.stats.count) * 100).toFixed(1)}%</span>
+										<span class="group-hover:hidden">{model.stats.won}</span>
+									{/if}
+								</td>
+								<td class="px-4 py-2.5 text-right font-medium text-red-500">
+									{#if model.stats.lost === '-'}-{:else}
+										<span class="hidden group-hover:inline">{((Number(model.stats.lost) / model.stats.count) * 100).toFixed(1)}%</span>
+										<span class="group-hover:hidden">{model.stats.lost}</span>
+									{/if}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</div>
 
-<div class="text-gray-500 text-xs mt-1.5 w-full flex justify-end">
-	<div class="text-right">
-		<div class="line-clamp-1">
-			ⓘ {$i18n.t(
-				'The evaluation leaderboard is based on the Elo rating system and is updated in real-time.'
-			)}
+	<div class="text-gray-500 text-xs mt-3 w-full flex justify-end">
+		<div class="text-right">
+			<div class="line-clamp-1">
+				ⓘ {$i18n.t('The evaluation leaderboard is based on the Elo rating system and is updated in real-time.')}
+			</div>
+			{$i18n.t('The leaderboard is currently in beta, and we may adjust the rating calculations as we refine the algorithm.')}
 		</div>
-		{$i18n.t(
-			'The leaderboard is currently in beta, and we may adjust the rating calculations as we refine the algorithm.'
-		)}
 	</div>
 </div>
