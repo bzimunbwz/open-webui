@@ -1387,6 +1387,32 @@ def subscription_required_response(model_name: str, model_id: str, stream: bool)
     return JSONResponse(payload)
 
 
+def providers_busy_response(model_id: str, stream: bool):
+    """Return a clean 'all providers busy' notice as a normal 200 completion so
+    clients show a friendly message instead of a raw error / attempts dump."""
+    content = (
+        "\u26a0\ufe0f **All models are busy right now.**\n\n"
+        "Every available provider is rate-limited or temporarily unavailable \u2014 "
+        "this is usually short-lived. Please wait a moment and try again."
+    )
+    created = int(time.time())
+    cid = f"chatcmpl-busy-{created}"
+    if stream:
+        def gen():
+            first = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
+                     "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}]}
+            yield f"data: {json.dumps(first)}\n\n"
+            last = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+            yield f"data: {json.dumps(last)}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(gen(), media_type="text/event-stream")
+    payload = {"id": cid, "object": "chat.completion", "created": created, "model": model_id,
+               "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+               "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
+    return JSONResponse(payload)
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
@@ -1507,7 +1533,8 @@ async def chat_completions(request: Request):
                     headers={"X-Gateway-Provider": pid, "X-Model-Tier": tier},
                 )
 
-    raise HTTPException(status_code=503, detail={"error": "all_providers_failed", "model": requested_model, "attempts": backend_errors})
+    logger.warning(f"All providers failed for '{requested_model}'")
+    return providers_busy_response(requested_model, stream)
 
 
 # ── User Subscription Routes ────────────────────────────────────────────────
