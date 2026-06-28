@@ -4,7 +4,8 @@
 
 <script lang="ts">
 	import { SvelteFlowProvider } from '@xyflow/svelte';
-	import { slide } from 'svelte/transition';
+	import { fly, slide } from 'svelte/transition';
+	import { quintOut } from 'svelte/easing';
 	import { Pane, PaneResizer } from 'paneforge';
 	import { v4 as uuidv4 } from 'uuid';
 
@@ -418,7 +419,10 @@
 		class="z-10 bg-white dark:bg-[#292929] dark:border-l dark:border-[#ffffff1a]"
 	>
 		{#if $showControls}
-			<div class="flex max-h-full min-h-full">
+			<div
+				class="flex max-h-full min-h-full w-full"
+				in:fly={{ x: 48, duration: 300, easing: quintOut }}
+			>
 				<div
 					class="w-full {specialPanel && !$showCallOverlay
 						? ' '
