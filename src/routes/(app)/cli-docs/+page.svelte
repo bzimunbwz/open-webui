@@ -230,6 +230,21 @@ ccr code</pre>
 				</ol>
 
 				<div class="rounded-lg border border-gray-200 dark:border-[#ffffff1a] p-3.5">
+					<div class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">{$i18n.t('Using the VS Code extension')}</div>
+					<p class="text-xs text-gray-600 dark:text-gray-400 mb-2">
+						{$i18n.t('The VS Code Claude Code extension launches Claude directly, bypassing the router (so it shows the Anthropic login). Point it at the running ccr server with two environment variables, then fully restart VS Code:')}
+					</p>
+					<div class="relative">
+						<pre class="text-xs font-mono p-3 rounded-lg bg-[#1a1a1a] text-gray-200 overflow-x-auto border border-[#ffffff1a]">ANTHROPIC_BASE_URL=http://127.0.0.1:3456
+ANTHROPIC_AUTH_TOKEN=sk-claudesk</pre>
+						<button class="absolute top-2 right-2 text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-gray-200" on:click={() => copy('vscode-env', 'ANTHROPIC_BASE_URL=http://127.0.0.1:3456\nANTHROPIC_AUTH_TOKEN=sk-claudesk')}>{copiedId === 'vscode-env' ? $i18n.t('Copied') : $i18n.t('Copy')}</button>
+					</div>
+					<p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+						{$i18n.t('Add them as Windows user environment variables (or export them in your shell on macOS/Linux). ccr must be running (ccr start). The token can be any non-empty value. The port 3456 is the ccr default.')}
+					</p>
+				</div>
+
+				<div class="rounded-lg border border-gray-200 dark:border-[#ffffff1a] p-3.5">
 					<div class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">{$i18n.t('Troubleshooting')}</div>
 					<ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1.5 list-disc pl-4">
 						<li>{$i18n.t('"Missing model in request body": your router is outdated. Run')} <code class="font-mono">npm i -g @musistudio/claude-code-router@latest</code> {$i18n.t('then')} <code class="font-mono">ccr restart</code>.</li>
