@@ -462,7 +462,7 @@
 			>
 				<div class="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
 					<button
-						class="flex gap-1 items-center bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-white bg-black/5 dark:bg-[#292929] hover:bg-white hover:text-black hover:border-white font-medium"
+						class="flex gap-1 items-center bg-none border border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-200 bg-white/10 hover:bg-white/20 hover:text-white font-medium"
 						on:click={collapseCodeBlock}
 					>
 						<div class=" -translate-y-[0.5px]">
@@ -483,7 +483,7 @@
 							</div>
 						{:else if run}
 							<button
-								class="flex gap-1 items-center run-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-white bg-black/5 dark:bg-[#292929] hover:bg-white hover:text-black hover:border-white font-medium"
+								class="flex gap-1 items-center run-code-button bg-none border border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-200 bg-white/10 hover:bg-white/20 hover:text-white font-medium"
 								on:click={async () => {
 									code = _code;
 									await tick();
@@ -499,7 +499,7 @@
 
 					{#if save}
 						<button
-							class="save-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-white bg-black/5 dark:bg-[#292929] hover:bg-white hover:text-black hover:border-white font-medium"
+							class="save-code-button bg-none border border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-200 bg-white/10 hover:bg-white/20 hover:text-white font-medium"
 							on:click={saveCode}
 						>
 							{saved ? $i18n.t('Saved') : $i18n.t('Save')}
@@ -507,13 +507,13 @@
 					{/if}
 
 					<button
-						class="copy-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-white bg-black/5 dark:bg-[#292929] hover:bg-white hover:text-black hover:border-white font-medium"
+						class="copy-code-button bg-none border border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-200 bg-white/10 hover:bg-white/20 hover:text-white font-medium"
 						on:click={copyCode}>{copied ? $i18n.t('Copied') : $i18n.t('Copy')}</button
 					>
 
 					{#if preview && ['html', 'svg'].includes(lang)}
 						<button
-							class="flex gap-1 items-center run-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-white bg-black/5 dark:bg-[#292929] hover:bg-white hover:text-black hover:border-white font-medium"
+							class="flex gap-1 items-center run-code-button bg-none border border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-200 bg-white/10 hover:bg-white/20 hover:text-white font-medium"
 							on:click={previewCode}
 						>
 							<div>
@@ -525,13 +525,13 @@
 			</div>
 
 			<div
-				class="language-{lang} bg-white dark:bg-[#1a1a1a] rounded-t-[var(--radius-xl)] -mt-8 {editorClassName
+				class="language-{lang} bg-[#1a1a1a] rounded-t-[var(--radius-xl)] -mt-8 {editorClassName
 					? editorClassName
 					: executing || stdout || stderr || result
 						? ''
 						: 'rounded-b-[var(--radius-xl)]'} overflow-hidden"
 			>
-				<div class=" pt-6.5 bg-white dark:bg-[#1a1a1a]"></div>
+				<div class=" pt-6.5 bg-[#1a1a1a]"></div>
 
 				{#if !collapsed}
 					{#if edit}
@@ -561,7 +561,7 @@
 					{/if}
 				{:else}
 					<div
-						class="bg-white dark:bg-[#1a1a1a] dark:text-white rounded-b-[var(--radius-xl)]! pt-1 pb-2 px-4 flex flex-col gap-2 text-xs"
+						class="bg-[#1a1a1a] text-white rounded-b-[var(--radius-xl)]! pt-1 pb-2 px-4 flex flex-col gap-2 text-xs"
 					>
 						<div class="flex items-center gap-2 min-w-0">
 							<span class="size-2 rounded-full bg-[#d4a574] shrink-0"></span>
@@ -581,12 +581,12 @@
 			{#if !collapsed}
 				<div
 					id="plt-canvas-{id}"
-					class="bg-white dark:bg-[#1a1a1a] dark:text-white max-w-full overflow-x-auto scrollbar-hidden"
+					class="bg-[#1a1a1a] text-white max-w-full overflow-x-auto scrollbar-hidden"
 				/>
 
 				{#if executing || stdout || stderr || result || files}
 					<div
-						class="bg-white dark:bg-[#1a1a1a] dark:text-white rounded-b-[var(--radius-xl)]! pt-2 pb-3 px-3.5 flex flex-col gap-2"
+						class="bg-[#1a1a1a] text-white rounded-b-[var(--radius-xl)]! pt-2 pb-3 px-3.5 flex flex-col gap-2"
 					>
 						{#if executing}
 							<div class=" ">
