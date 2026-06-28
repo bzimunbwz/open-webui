@@ -1295,10 +1295,10 @@
 
 						<div
 							id="message-input-container"
-							class="flex-1 flex flex-col relative w-full shadow-lg rounded-3xl border {$temporaryChatEnabled
-								? 'border-dashed border-gray-100 dark:border-gray-800 hover:border-gray-200 focus-within:border-gray-200 hover:dark:border-gray-700 focus-within:dark:border-gray-700'
-								: ' border-gray-100/30 dark:border-gray-850/30 hover:border-gray-200 focus-within:border-gray-100 hover:dark:border-gray-800 focus-within:dark:border-gray-800'}  transition px-1 bg-white/5 dark:bg-gray-500/5 backdrop-blur-sm dark:text-gray-100"
-								style="background-color: {$temporaryChatEnabled ? '#151638' : '#292929'}; border-color: #ffffff1a; border-radius: var(--radius-xl);"
+							class="flex-1 flex flex-col relative w-full shadow-lg rounded-3xl border transition px-1 backdrop-blur-sm text-gray-900 dark:text-gray-100 {$temporaryChatEnabled
+								? 'border-dashed bg-gray-50 dark:bg-[#151638] border-gray-200 dark:border-[#ffffff1a] hover:border-gray-300 focus-within:border-gray-300 dark:hover:border-[#ffffff2e] dark:focus-within:border-[#ffffff2e]'
+								: 'bg-white dark:bg-[#292929] border-gray-200 dark:border-[#ffffff1a] hover:border-gray-300 focus-within:border-gray-300 dark:hover:border-[#ffffff2e] dark:focus-within:border-[#ffffff2e]'}"
+								style="border-radius: var(--radius-xl);"
 							dir={$settings?.chatDirection ?? 'auto'}
 						>
 							{#if atSelectedModel !== undefined}
