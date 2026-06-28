@@ -57,7 +57,7 @@
 	}[] = [];
 
 	export let className = 'w-[32rem]';
-	export let triggerClassName = 'text-lg';
+	export let triggerClassName = 'text-base font-medium';
 
 	export let pinModelHandler: (modelId: string) => void = () => {};
 
@@ -506,7 +506,7 @@
 <div class="relative w-full">
 	<button
 		bind:this={triggerElement}
-		class="relative w-full {($settings?.highContrastMode ?? false)
+		class="relative w-fit max-w-full {($settings?.highContrastMode ?? false)
 			? ''
 			: 'outline-hidden focus:outline-hidden'}"
 		aria-label={selectedModel
@@ -519,7 +519,7 @@
 		on:click={toggleOpen}
 	>
 		<div
-			class="flex w-full text-left px-0.5 bg-transparent truncate {triggerClassName} justify-between {($settings?.highContrastMode ??
+			class="flex items-center gap-2 max-w-full text-left truncate rounded-lg border border-gray-200 dark:border-[#ffffff1a] bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 transition px-3 py-1.5 {triggerClassName} {($settings?.highContrastMode ??
 			false)
 				? 'dark:placeholder-gray-100 placeholder-gray-800'
 				: 'placeholder-gray-400'}"
