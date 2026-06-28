@@ -389,12 +389,11 @@
 {:else}
 	{#if $showControls}
 		<PaneResizer
-			class="relative flex items-center justify-center group border-l border-gray-50 dark:border-gray-850/30 hover:border-gray-200 dark:hover:border-gray-800 transition z-20"
+			class="relative flex items-center justify-center group z-20 cursor-col-resize"
 			id="controls-resizer"
 		>
-			<div
-				class="absolute -left-1.5 -right-1.5 -top-0 -bottom-0 z-20 cursor-col-resize bg-transparent"
-			/>
+			<div class="absolute -left-2 -right-2 top-0 bottom-0 z-20 cursor-col-resize"></div>
+			<div class="h-10 w-1 rounded-full bg-gray-300 dark:bg-gray-700 group-hover:bg-[#d4a574] group-active:bg-[#d4a574] transition"></div>
 		</PaneResizer>
 	{/if}
 
@@ -416,14 +415,14 @@
 			if (paneReady) showControls.set(false);
 		}}
 		collapsible={true}
-		class="z-10 bg-white dark:bg-gray-850"
+		class="z-10 bg-white dark:bg-[#292929] dark:border-l dark:border-[#ffffff1a]"
 	>
 		{#if $showControls}
 			<div class="flex max-h-full min-h-full">
 				<div
 					class="w-full {specialPanel && !$showCallOverlay
 						? ' '
-						: 'bg-white dark:shadow-lg dark:bg-gray-850'} z-40 pointer-events-auto {activeTab ===
+						: 'bg-white dark:shadow-lg dark:bg-[#292929]'} z-40 pointer-events-auto {activeTab ===
 					'files'
 						? ''
 						: 'overflow-y-auto'} scrollbar-hidden"

@@ -122,7 +122,7 @@
 </script>
 
 <div
-	class=" w-full h-full relative flex flex-col bg-white dark:bg-gray-850"
+	class=" w-full h-full relative flex flex-col bg-white dark:bg-[#292929]"
 	id="artifacts-container"
 >
 	<div class="w-full h-full flex flex-col flex-1 relative">
