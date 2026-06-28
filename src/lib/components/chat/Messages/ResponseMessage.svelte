@@ -191,6 +191,49 @@
 
 	let showRateComment = false;
 
+	const _usageLabel = (k) =>
+		String(k)
+			.replace(/_/g, ' ')
+			.replace(/\b\w/g, (c) => c.toUpperCase());
+
+	const _usageEsc = (v) =>
+		String(v).replace(
+			/[&<>"]/g,
+			(c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]
+		);
+
+	const formatUsage = (usage) => {
+		if (!usage || typeof usage !== 'object') return '';
+		const rows = [];
+		const add = (label, value) => {
+			rows.push(
+				`<div style="display:flex;align-items:baseline;justify-content:space-between;gap:18px;padding:5px 0;">` +
+					`<span style="color:#9ca3af;font-size:11.5px;white-space:nowrap;">${_usageEsc(label)}</span>` +
+					`<span style="font-weight:600;font-size:12px;font-variant-numeric:tabular-nums;text-align:right;word-break:break-word;">${_usageEsc(value)}</span>` +
+					`</div>`
+			);
+		};
+		for (const [k, v] of Object.entries(usage)) {
+			if (v === null || v === undefined || v === '') continue;
+			if (typeof v === 'object') {
+				for (const [k2, v2] of Object.entries(v)) {
+					if (v2 === null || v2 === undefined || v2 === '') continue;
+					add(`${_usageLabel(k)} · ${_usageLabel(k2)}`, typeof v2 === 'number' ? v2.toLocaleString() : v2);
+				}
+			} else {
+				add(_usageLabel(k), typeof v === 'number' ? v.toLocaleString() : v);
+			}
+		}
+		if (rows.length === 0) return '';
+		const divider = `<div style="height:1px;background:rgba(255,255,255,0.07);margin:0 -2px;"></div>`;
+		return (
+			`<div style="min-width:188px;max-width:min(280px,80vw);padding:4px 2px;text-align:left;">` +
+			`<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;margin-bottom:4px;">${_usageEsc($i18n.t('Response Info'))}</div>` +
+			rows.join(divider) +
+			`</div>`
+		);
+	};
+
 	const copyToClipboard = async (text) => {
 		text = removeAllDetails(text);
 
@@ -1144,17 +1187,7 @@
 
 								{#if message.usage}
 									<Tooltip
-										content={message.usage
-											? `<pre>${sanitizeResponseContent(
-													JSON.stringify(message.usage, null, 2)
-														.replace(/"([^(")"]+)":/g, '$1:')
-														.slice(1, -1)
-														.split('\n')
-														.map((line) => line.slice(2))
-														.map((line) => (line.endsWith(',') ? line.slice(0, -1) : line))
-														.join('\n')
-												)}</pre>`
-											: ''}
+										content={message.usage ? formatUsage(message.usage) : ''}
 										placement="bottom"
 									>
 										<button
