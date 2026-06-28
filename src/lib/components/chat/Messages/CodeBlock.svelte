@@ -634,4 +634,9 @@
 	:global(.code-card pre.hljs) {
 		padding-top: 0.25rem;
 	}
+	:global(.dark .code-card),
+	:global(.dark .code-card .dark\:border-\[\#ffffff1a\]) {
+		border-color: #ffffff1a;
+		background: #808080 !important;
+	}
 </style>
