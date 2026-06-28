@@ -519,7 +519,7 @@
 		on:click={toggleOpen}
 	>
 		<div
-			class="flex items-center gap-2 max-w-full text-left truncate rounded-lg border border-gray-200 dark:border-[#ffffff1a] bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 transition px-3 py-1.5 {triggerClassName} {($settings?.highContrastMode ??
+			class="flex items-center gap-2 max-w-full text-left truncate rounded-lg border border-gray-200 dark:border-[#ffffff1a] bg-gray-50 dark:bg-[#808080] hover:bg-gray-100 dark:hover:bg-[#8a8a8a] transition px-3 py-1.5 {triggerClassName} {($settings?.highContrastMode ??
 			false)
 				? 'dark:placeholder-gray-100 placeholder-gray-800'
 				: 'placeholder-gray-400'}"
