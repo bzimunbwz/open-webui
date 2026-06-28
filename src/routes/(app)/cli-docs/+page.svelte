@@ -191,14 +191,19 @@ model_provider = "claudesk"`;
 		{#if activeTab === 'claude-code'}
 			<div class="space-y-4">
 				<p class="text-sm text-gray-600 dark:text-gray-400">
-					{$i18n.t('Claude Code speaks the Anthropic API, so we use Claude Code Router to bridge it to ClaudeSK. Follow these steps:')}
+					{$i18n.t('Claude Code talks to the Anthropic API, so we bridge it to ClaudeSK with Claude Code Router (ccr). Works on macOS, Linux and Windows.')}
 				</p>
+
+				<div class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+					{$i18n.t('Requires Node.js 18+ and the LATEST Claude Code Router. An outdated router causes a "Missing model in request body" error.')}
+				</div>
+
 				<ol class="space-y-4 text-sm text-gray-800 dark:text-gray-200 list-decimal pl-5">
 					<li>
-						<div class="font-medium mb-1.5">{$i18n.t('Install Claude Code and the router')}</div>
+						<div class="font-medium mb-1.5">{$i18n.t('Install Claude Code and the router (use @latest)')}</div>
 						<div class="relative">
-							<pre class="text-xs font-mono p-3 rounded-lg bg-[#1a1a1a] text-gray-200 overflow-x-auto border border-[#ffffff1a]">npm install -g @anthropic-ai/claude-code @musistudio/claude-code-router</pre>
-							<button class="absolute top-2 right-2 text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-gray-200" on:click={() => copy('cc-install', 'npm install -g @anthropic-ai/claude-code @musistudio/claude-code-router')}>{copiedId === 'cc-install' ? $i18n.t('Copied') : $i18n.t('Copy')}</button>
+							<pre class="text-xs font-mono p-3 rounded-lg bg-[#1a1a1a] text-gray-200 overflow-x-auto border border-[#ffffff1a]">npm install -g @anthropic-ai/claude-code @musistudio/claude-code-router@latest</pre>
+							<button class="absolute top-2 right-2 text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-gray-200" on:click={() => copy('cc-install', 'npm install -g @anthropic-ai/claude-code @musistudio/claude-code-router@latest')}>{copiedId === 'cc-install' ? $i18n.t('Copied') : $i18n.t('Copy')}</button>
 						</div>
 					</li>
 					<li>
@@ -207,15 +212,32 @@ model_provider = "claudesk"`;
 							<pre class="text-xs font-mono p-3 rounded-lg bg-[#1a1a1a] text-gray-200 overflow-x-auto border border-[#ffffff1a]">{claudeRouterConfig}</pre>
 							<button class="absolute top-2 right-2 text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-gray-200" on:click={() => copy('cc-config', claudeRouterConfig)}>{copiedId === 'cc-config' ? $i18n.t('Copied') : $i18n.t('Copy')}</button>
 						</div>
+						<div class="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+							{$i18n.t('The "openai" transformer is required — it rebuilds the request in OpenAI format so the model is sent correctly.')}
+						</div>
 					</li>
 					<li>
-						<div class="font-medium mb-1.5">{$i18n.t('Start Claude Code through the router')}</div>
+						<div class="font-medium mb-1.5">{$i18n.t('Restart the router, then launch Claude Code')}</div>
 						<div class="relative">
-							<pre class="text-xs font-mono p-3 rounded-lg bg-[#1a1a1a] text-gray-200 overflow-x-auto border border-[#ffffff1a]">ccr code</pre>
-							<button class="absolute top-2 right-2 text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-gray-200" on:click={() => copy('cc-run', 'ccr code')}>{copiedId === 'cc-run' ? $i18n.t('Copied') : $i18n.t('Copy')}</button>
+							<pre class="text-xs font-mono p-3 rounded-lg bg-[#1a1a1a] text-gray-200 overflow-x-auto border border-[#ffffff1a]">ccr restart
+ccr code</pre>
+							<button class="absolute top-2 right-2 text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-gray-200" on:click={() => copy('cc-run', 'ccr restart\nccr code')}>{copiedId === 'cc-run' ? $i18n.t('Copied') : $i18n.t('Copy')}</button>
+						</div>
+						<div class="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+							{$i18n.t('Always run ccr restart after editing the config — the service caches it. Then type hi to test.')}
 						</div>
 					</li>
 				</ol>
+
+				<div class="rounded-lg border border-gray-200 dark:border-[#ffffff1a] p-3.5">
+					<div class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">{$i18n.t('Troubleshooting')}</div>
+					<ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1.5 list-disc pl-4">
+						<li>{$i18n.t('"Missing model in request body": your router is outdated. Run')} <code class="font-mono">npm i -g @musistudio/claude-code-router@latest</code> {$i18n.t('then')} <code class="font-mono">ccr restart</code>.</li>
+						<li>{$i18n.t('Prefer a UI? Run')} <code class="font-mono">ccr ui</code> {$i18n.t('to add the provider, set the openai transformer, and the Default route, then')} <code class="font-mono">ccr code</code>.</li>
+						<li>{$i18n.t('"command not found": make sure your npm global folder (npm config get prefix) is on PATH, then reopen the terminal.')}</li>
+						<li>{$i18n.t('Use the exact model id shown in the selector above — a wrong id returns "Model not found".')}</li>
+					</ul>
+				</div>
 			</div>
 		{:else if activeTab === 'openai'}
 			<div class="space-y-4">
