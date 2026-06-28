@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import { slide } from 'svelte/transition';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 
 	const i18n = getContext('i18n');
@@ -687,7 +688,7 @@
 					</button>
 
 					{#if expandedProviders[provider.id]}
-						<div class="border-t border-gray-800">
+						<div class="border-t border-gray-800" transition:slide={{ duration: 250 }}>
 
 							<!-- Config Section -->
 							<div class="px-3 sm:px-5 py-4 bg-gray-900/80">
@@ -1139,3 +1140,14 @@
 
 	{/if}
 </div>
+
+<style>
+	/* Match the chat input box: #292929 surface, faint border, xl radius */
+	input:not([type='checkbox']):not([type='radio']),
+	textarea,
+	select {
+		background-color: #292929 !important;
+		border-color: #ffffff1a !important;
+		border-radius: var(--radius-xl) !important;
+	}
+</style>
