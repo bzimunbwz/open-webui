@@ -1,13 +1,21 @@
 <script lang="ts">
 	import { onMount, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { user } from '$lib/stores';
+	import { models, user } from '$lib/stores';
 	import { createAPIKey, getAPIKey } from '$lib/apis/auths';
 
 	const i18n = getContext('i18n');
 
 	const API_BASE = 'https://claudesk.pro/api';
-	const MODEL = 'claude-opus-4.8';
+	const FACADE_FALLBACK = ['claude-opus-4.8', 'claude-opus-4.7', 'claude-sonnet-4.6', 'chatgpt-codex-5.5'];
+	let selectedModel = 'claude-opus-4.8';
+	$: modelList =
+		$models && $models.length
+			? $models
+					.filter((m) => m?.id && !(m?.info?.meta?.hidden) && m?.owned_by !== 'arena')
+					.map((m) => ({ id: m.id, name: m.name || m.id }))
+			: FACADE_FALLBACK.map((id) => ({ id, name: id }));
+	$: if (modelList.length && !modelList.some((m) => m.id === selectedModel)) selectedModel = modelList[0].id;
 
 	let apiKey = '';
 	let loading = false;
@@ -75,7 +83,7 @@
     {
       "title": "ClaudeSK",
       "provider": "openai",
-      "model": "${MODEL}",
+      "model": "${selectedModel}",
       "apiBase": "${API_BASE}",
       "apiKey": "${key}"
     }
@@ -86,7 +94,7 @@
   -H "Authorization: Bearer ${key}" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "${MODEL}",
+    "model": "${selectedModel}",
     "messages": [{ "role": "user", "content": "Hello!" }]
   }'`;
 
@@ -97,7 +105,7 @@ env_key = "CLAUDESK_API_KEY"
 wire_api = "chat"
 
 [profiles.claudesk]
-model = "${MODEL}"
+model = "${selectedModel}"
 model_provider = "claudesk"`;
 
 	$: codexEnv = `export CLAUDESK_API_KEY="${key}"`;
@@ -142,6 +150,23 @@ model_provider = "claudesk"`;
 			</div>
 			<div class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
 				{$i18n.t('Base URL')}: <code class="font-mono">{API_BASE}</code> · {$i18n.t('Keep this key secret. Regenerating invalidates the old key.')}
+			</div>
+		</div>
+
+		<!-- Model selector -->
+		<div class="mb-5">
+			<div class="text-sm font-semibold text-gray-900 dark:text-white mb-2">{$i18n.t('Choose a model')}</div>
+			<div class="flex flex-wrap gap-2">
+				{#each modelList as m}
+					<button
+						class="text-xs font-medium px-3 py-1.5 rounded-lg border transition {selectedModel === m.id
+							? 'bg-[#d4a574] text-white border-[#d4a574]'
+							: 'border-gray-200 dark:border-[#ffffff1a] text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10'}"
+						on:click={() => (selectedModel = m.id)}
+					>
+						{m.name}
+					</button>
+				{/each}
 			</div>
 		</div>
 
@@ -195,7 +220,7 @@ model_provider = "claudesk"`;
 				<div class="rounded-lg border border-gray-200 dark:border-[#ffffff1a] divide-y divide-gray-200 dark:divide-[#ffffff1a] text-sm">
 					<div class="flex justify-between gap-3 px-3 py-2"><span class="text-gray-500 dark:text-gray-400">{$i18n.t('Base URL')}</span><code class="font-mono text-gray-800 dark:text-gray-200">{API_BASE}</code></div>
 					<div class="flex justify-between gap-3 px-3 py-2"><span class="text-gray-500 dark:text-gray-400">{$i18n.t('API Key')}</span><code class="font-mono text-gray-800 dark:text-gray-200 truncate max-w-[60%]">{key}</code></div>
-					<div class="flex justify-between gap-3 px-3 py-2"><span class="text-gray-500 dark:text-gray-400">{$i18n.t('Model')}</span><code class="font-mono text-gray-800 dark:text-gray-200">{MODEL}</code></div>
+					<div class="flex justify-between gap-3 px-3 py-2"><span class="text-gray-500 dark:text-gray-400">{$i18n.t('Model')}</span><code class="font-mono text-gray-800 dark:text-gray-200">{selectedModel}</code></div>
 				</div>
 
 				<div>
