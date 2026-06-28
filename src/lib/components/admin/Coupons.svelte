@@ -126,8 +126,8 @@
 		<div class="flex items-center justify-between mb-1">
 			<h1 class="text-2xl font-bold">Coupons</h1>
 			<div class="flex gap-2">
-				<button on:click={loadAll} class="text-xs px-3 py-1.5 bg-gray-800 rounded-lg hover:bg-gray-700 transition">Refresh</button>
-				<button on:click={() => { showForm = true; }} class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">+ Create Coupons</button>
+				<button on:click={loadAll} class="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-700 transition">Refresh</button>
+				<button on:click={() => { showForm = true; }} class="text-xs px-3 py-1.5 bg-blue-600 text-gray-900 dark:text-white rounded-lg hover:bg-blue-700 transition">+ Create Coupons</button>
 			</div>
 		</div>
 		<p class="text-sm text-gray-500">Create single or bulk coupons. Group coupons for easy management. 1 coupon = 1 use per user.</p>
@@ -141,34 +141,34 @@
 
 	<!-- Create Form -->
 	{#if showForm}
-		<div class="mx-6 mb-4 bg-gray-900 rounded-xl p-5 border border-gray-800">
+		<div class="mx-6 mb-4 bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
 			<h3 class="text-sm font-semibold mb-3">Create Coupons</h3>
 			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
 				<div>
-					<label class="text-xs text-gray-400 mb-1 block">Quantity</label>
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Quantity</label>
 					<input type="number" min="1" max="1000" bind:value={form.count}
-						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
+						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
 				</div>
 				<div>
-					<label class="text-xs text-gray-400 mb-1 block">Group Name</label>
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Group Name</label>
 					<input bind:value={form.group} placeholder="e.g. launch-promo"
-						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
+						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
 				</div>
 				<div>
-					<label class="text-xs text-gray-400 mb-1 block">Code Prefix</label>
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Code Prefix</label>
 					<input bind:value={form.prefix} placeholder="e.g. PROMO"
-						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
+						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
 				</div>
 				<div>
-					<label class="text-xs text-gray-400 mb-1 block">Max Uses Per Coupon</label>
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Max Uses Per Coupon</label>
 					<input type="number" min="1" bind:value={form.max_uses}
-						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
+						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
 				</div>
 			</div>
 			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
 				<div>
-					<label class="text-xs text-gray-400 mb-1 block">Package</label>
-					<select bind:value={form.package_id} class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Package</label>
+					<select bind:value={form.package_id} class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm">
 						<option value="">Any package</option>
 						{#each packages as pkg}
 							<option value={pkg.id}>{pkg.name}</option>
@@ -176,26 +176,26 @@
 					</select>
 				</div>
 				<div>
-					<label class="text-xs text-gray-400 mb-1 block">Duration Type</label>
-					<select bind:value={form.duration} class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Duration Type</label>
+					<select bind:value={form.duration} class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm">
 						<option value="monthly">Monthly</option>
 						<option value="yearly">Yearly</option>
 					</select>
 				</div>
 				<div>
-					<label class="text-xs text-gray-400 mb-1 block">Months Valid</label>
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Months Valid</label>
 					<input type="number" min="1" bind:value={form.months}
-						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
+						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
 				</div>
 				<div>
-					<label class="text-xs text-gray-400 mb-1 block">Expires At (optional)</label>
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Expires At (optional)</label>
 					<input type="date" bind:value={form.expires_at}
-						class="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm" />
+						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
 				</div>
 			</div>
 			<div class="flex gap-2">
-				<button on:click={createCoupons} class="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition">Create {form.count > 1 ? `${form.count} Coupons` : 'Coupon'}</button>
-				<button on:click={() => { showForm = false; }} class="px-4 py-2 bg-gray-800 text-sm rounded-lg hover:bg-gray-700 transition">Cancel</button>
+				<button on:click={createCoupons} class="px-4 py-2 bg-orange-600 text-gray-900 dark:text-white text-sm rounded-lg hover:bg-orange-700 transition">Create {form.count > 1 ? `${form.count} Coupons` : 'Coupon'}</button>
+				<button on:click={() => { showForm = false; }} class="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-sm rounded-lg hover:bg-gray-700 transition">Cancel</button>
 			</div>
 		</div>
 	{/if}
@@ -206,8 +206,8 @@
 			<div class="flex items-center justify-between mb-2">
 				<span class="text-sm font-semibold text-green-400">Created Codes</span>
 				<div class="flex gap-2">
-					<button on:click={() => copyToClipboard(copiedText)} class="text-xs px-3 py-1 bg-green-700 text-white rounded-lg hover:bg-green-600 transition">Copy All</button>
-					<button on:click={() => { copiedText = ''; }} class="text-xs text-gray-400 hover:text-gray-300">Dismiss</button>
+					<button on:click={() => copyToClipboard(copiedText)} class="text-xs px-3 py-1 bg-green-700 text-gray-900 dark:text-white rounded-lg hover:bg-green-600 transition">Copy All</button>
+					<button on:click={() => { copiedText = ''; }} class="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-300">Dismiss</button>
 				</div>
 			</div>
 			<pre class="text-xs font-mono text-green-300 max-h-40 overflow-y-auto">{copiedText}</pre>
@@ -218,12 +218,12 @@
 	<div class="px-6 mb-4 flex flex-wrap gap-3 items-center">
 		<div class="relative flex-1 max-w-full sm:max-w-xs">
 			<input bind:value={searchQuery} placeholder="Search coupons..."
-				class="w-full rounded-lg border border-gray-700 bg-gray-800 pl-8 pr-3 py-2 text-sm" />
+				class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 pl-8 pr-3 py-2 text-sm" />
 			<svg class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
 				<path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
 			</svg>
 		</div>
-		<select bind:value={selectedGroup} class="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm">
+		<select bind:value={selectedGroup} class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm">
 			<option value="">All Groups ({coupons.length})</option>
 			{#each groups as group}
 				<option value={group}>{group} ({coupons.filter(c => (c.group || 'ungrouped') === group).length})</option>
@@ -237,10 +237,10 @@
 
 	<!-- Coupon Table -->
 	<div class="px-6 pb-6">
-		<div class="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden overflow-x-auto">
+		<div class="bg-white dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead>
-					<tr class="border-b border-gray-800 text-left text-xs text-gray-500">
+					<tr class="border-b border-gray-200 dark:border-gray-800 text-left text-xs text-gray-500">
 						<th class="px-4 py-3">Code</th>
 						<th class="px-4 py-3">Group</th>
 						<th class="px-4 py-3">Package</th>
@@ -253,7 +253,7 @@
 				</thead>
 				<tbody>
 					{#each filteredCoupons as coupon (coupon.code)}
-						<tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
+						<tr class="border-b border-gray-200 dark:border-gray-800/50 hover:bg-gray-800/30 transition">
 							<td data-label="Code" class="px-4 py-3">
 								<button on:click={() => copySingle(coupon.code)} class="font-mono text-blue-400 hover:text-blue-300 cursor-pointer" title="Click to copy">
 									{coupon.code}
@@ -261,9 +261,9 @@
 							</td>
 							<td data-label="Group" class="px-4 py-3 text-gray-500">{coupon.group || '—'}</td>
 							<td data-label="Package" class="px-4 py-3">{coupon.package_id || 'Any'}</td>
-							<td data-label="Duration" class="px-4 py-3 text-gray-400">{coupon.duration} ({coupon.months}mo)</td>
+							<td data-label="Duration" class="px-4 py-3 text-gray-600 dark:text-gray-400">{coupon.duration} ({coupon.months}mo)</td>
 							<td data-label="Used" class="px-4 py-3">
-								<span class="{(coupon.used_by || []).length >= (coupon.max_uses || 1) ? 'text-red-400' : 'text-gray-400'}">
+								<span class="{(coupon.used_by || []).length >= (coupon.max_uses || 1) ? 'text-red-400' : 'text-gray-600 dark:text-gray-400'}">
 									{(coupon.used_by || []).length}/{coupon.max_uses || 1}
 								</span>
 							</td>
