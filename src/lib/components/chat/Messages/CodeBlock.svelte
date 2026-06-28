@@ -434,7 +434,7 @@
 
 <div>
 	<div
-		class="relative {className} code-card flex flex-col rounded-[var(--radius-xl)] border border-gray-200/60 dark:border-[#ffffff1a] overflow-hidden my-0.5"
+		class="relative {className} code-card group flex flex-col rounded-[var(--radius-xl)] border border-gray-200/60 dark:border-[#ffffff1a] overflow-hidden my-0.5"
 		dir="ltr"
 	>
 		{#if ['mermaid', 'vega', 'vega-lite'].includes(lang)}
@@ -460,9 +460,9 @@
 			<div
 				class="sticky {stickyButtonsClassName} left-0 right-0 py-2 px-2.5 gap-2 flex items-center justify-end w-full z-10 text-xs"
 			>
-				<div class="flex items-center gap-0.5 shrink-0">
+				<div class="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
 					<button
-						class="flex gap-1 items-center bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] font-medium"
+						class="flex gap-1 items-center bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] hover:text-[#d4a574] dark:hover:text-[#d4a574] hover:border-[#d4a574]/40 font-medium"
 						on:click={collapseCodeBlock}
 					>
 						<div class=" -translate-y-[0.5px]">
@@ -483,7 +483,7 @@
 							</div>
 						{:else if run}
 							<button
-								class="flex gap-1 items-center run-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] font-medium"
+								class="flex gap-1 items-center run-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] hover:text-[#d4a574] dark:hover:text-[#d4a574] hover:border-[#d4a574]/40 font-medium"
 								on:click={async () => {
 									code = _code;
 									await tick();
@@ -499,7 +499,7 @@
 
 					{#if save}
 						<button
-							class="save-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] font-medium"
+							class="save-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] hover:text-[#d4a574] dark:hover:text-[#d4a574] hover:border-[#d4a574]/40 font-medium"
 							on:click={saveCode}
 						>
 							{saved ? $i18n.t('Saved') : $i18n.t('Save')}
@@ -507,13 +507,13 @@
 					{/if}
 
 					<button
-						class="copy-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] font-medium"
+						class="copy-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] hover:text-[#d4a574] dark:hover:text-[#d4a574] hover:border-[#d4a574]/40 font-medium"
 						on:click={copyCode}>{copied ? $i18n.t('Copied') : $i18n.t('Copy')}</button
 					>
 
 					{#if preview && ['html', 'svg'].includes(lang)}
 						<button
-							class="flex gap-1 items-center run-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] font-medium"
+							class="flex gap-1 items-center run-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] hover:text-[#d4a574] dark:hover:text-[#d4a574] hover:border-[#d4a574]/40 font-medium"
 							on:click={previewCode}
 						>
 							<div>
