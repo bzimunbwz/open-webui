@@ -43,6 +43,8 @@ export const DEFAULT_PERMISSIONS = {
 		continue_response: true,
 		regenerate_response: true,
 		rate_response: true,
+		copy: true,
+		message_info: true,
 		edit: true,
 		share: true,
 		export: true,

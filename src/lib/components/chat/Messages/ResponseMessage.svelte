@@ -1069,6 +1069,7 @@
 									{/if}
 								{/if}
 
+								{#if $user?.role === 'admin' || ($user?.permissions?.chat?.copy ?? true)}
 								<Tooltip content={$i18n.t('Copy')} placement="bottom">
 									<button
 										aria-label={$i18n.t('Copy')}
@@ -1096,6 +1097,7 @@
 										</svg>
 									</button>
 								</Tooltip>
+								{/if}
 
 								{#if !readOnly && ($user?.role === 'admin' || ($user?.permissions?.chat?.tts ?? true))}
 									<Tooltip content={$i18n.t('Read Aloud')} placement="bottom">
@@ -1185,7 +1187,7 @@
 									</Tooltip>
 								{/if}
 
-								{#if message.usage}
+								{#if message.usage && ($user?.role === 'admin' || ($user?.permissions?.chat?.message_info ?? true))}
 									<Tooltip
 										content={message.usage ? formatUsage(message.usage) : ''}
 										placement="bottom"

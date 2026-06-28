@@ -212,6 +212,8 @@ class ChatPermissions(BaseModel):
     continue_response: bool = True
     regenerate_response: bool = True
     rate_response: bool = True
+    copy: bool = True
+    message_info: bool = True
     edit: bool = True
     share: bool = True
     export: bool = True
