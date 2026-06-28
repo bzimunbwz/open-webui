@@ -198,10 +198,10 @@
 
 		<div class="flex flex-col md:flex-row w-full px-5 pb-5 md:space-x-4">
 			<div
-				class="flex flex-col w-full dark:text-gray-200 overflow-y-scroll max-h-[22rem] scrollbar-thin gap-1"
+				class="flex flex-col w-full dark:text-gray-200 overflow-y-auto max-h-[60vh] scrollbar-thin gap-3 pr-1"
 			>
 				{#each mergedDocuments as document, documentIdx}
-					<div class="flex flex-col w-full gap-2">
+					<div class="flex flex-col w-full gap-2 rounded-[var(--radius-xl)] border border-gray-100 dark:border-white/10 bg-gray-50/60 dark:bg-white/[0.03] p-4">
 						{#if document.metadata?.parameters}
 							<div>
 								<div class="text-sm font-medium dark:text-gray-300 mb-1">
@@ -215,7 +215,7 @@
 
 						<div>
 							<div
-								class=" text-sm font-medium dark:text-gray-300 flex items-center gap-2 w-fit mb-1"
+								class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center flex-wrap gap-2 mb-2"
 							>
 								{#if document.source?.url?.includes('http')}
 									{@const snippetUrl = getTextFragmentUrl(document)}
@@ -286,7 +286,7 @@
 									!expandedDocs.has(documentIdx)}
 								{#if $settings?.renderMarkdownInPreviews ?? true}
 									<div
-										class="text-sm prose dark:prose-invert markdown-prose-sm min-w-full max-w-full"
+										class="text-sm leading-relaxed prose dark:prose-invert markdown-prose-sm min-w-full max-w-full break-words"
 									>
 										<Markdown
 											content={isTruncated
