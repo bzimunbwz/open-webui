@@ -806,7 +806,7 @@
 						<div class=" self-center flex items-center justify-center size-9">
 							<img
 								src="{WEBUI_BASE_URL}/static/favicon.png"
-								class="sidebar-new-chat-icon size-6 rounded-full group-hover:hidden"
+								class="sidebar-new-chat-icon size-6 object-contain group-hover:hidden"
 								alt=""
 							/>
 
@@ -1017,7 +1017,7 @@
 					<img
 						crossorigin="anonymous"
 						src="{WEBUI_BASE_URL}/static/favicon.png"
-						class="sidebar-new-chat-icon size-6 rounded-full"
+						class="sidebar-new-chat-icon size-6 object-contain"
 						alt=""
 					/>
 				</a>
