@@ -72,7 +72,7 @@
       "api_base_url": "${API_BASE}/chat/completions",
       "api_key": "${key}",
       "models": ["${selectedModel}"],
-      "transformer": { "use": ["openai"] }
+      "transformer": { "use": ["OpenAI"] }
     }
   ],
   "Router": {
