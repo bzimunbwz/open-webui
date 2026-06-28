@@ -563,11 +563,17 @@
 					<div
 						class="bg-white dark:bg-[#1a1a1a] dark:text-white rounded-b-[var(--radius-xl)]! pt-1 pb-2 px-4 flex flex-col gap-2 text-xs"
 					>
-						<span class="text-gray-500 italic">
-							{$i18n.t('{{COUNT}} hidden lines', {
-								COUNT: code.split('\n').length
-							})}
-						</span>
+						<div class="flex items-center gap-2 min-w-0">
+							<span class="size-2 rounded-full bg-[#d4a574] shrink-0"></span>
+							<span class="font-mono font-medium lowercase text-gray-700 dark:text-gray-200 truncate">
+								{lang || 'code'}
+							</span>
+							<span class="text-gray-500 italic shrink-0">
+								{$i18n.t('{{COUNT}} hidden lines', {
+									COUNT: code.split('\n').length
+								})}
+							</span>
+						</div>
 					</div>
 				{/if}
 			</div>
