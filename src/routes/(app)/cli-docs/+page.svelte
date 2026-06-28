@@ -70,11 +70,11 @@
       "name": "claudesk",
       "api_base_url": "${API_BASE}/chat/completions",
       "api_key": "${key}",
-      "models": ["claude-opus-4.8", "claude-sonnet-4.6"]
+      "models": ["${selectedModel}"]
     }
   ],
   "Router": {
-    "default": "claudesk,claude-opus-4.8"
+    "default": "claudesk,${selectedModel}"
   }
 }`;
 
