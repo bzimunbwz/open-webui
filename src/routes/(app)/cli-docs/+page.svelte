@@ -268,6 +268,15 @@ ccr code</pre>
 				<p class="text-[11px] text-gray-500 dark:text-gray-400">
 					{$i18n.t('In Cline / Roo Code / Cursor: choose the "OpenAI Compatible" provider, then paste the Base URL, API Key and Model above.')}
 				</p>
+				<div class="rounded-lg border border-gray-200 dark:border-[#ffffff1a] p-3.5">
+					<div class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">{$i18n.t('Troubleshooting')}</div>
+					<ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1.5 list-disc pl-4">
+						<li>{$i18n.t('"Model not found": use the exact model id from the selector above.')}</li>
+						<li>{$i18n.t('401 / Unauthorized: regenerate your API key above and make sure API keys are enabled.')}</li>
+						<li>{$i18n.t('A "subscription required" reply means that model needs a paid plan — pick a free model.')}</li>
+						<li>{$i18n.t('If a tool requires the base URL to end in /v1, use')} <code class="font-mono">https://claudesk.pro/api/v1</code>.</li>
+					</ul>
+				</div>
 			</div>
 		{:else}
 			<div class="space-y-4">
@@ -297,6 +306,15 @@ ccr code</pre>
 						</div>
 					</li>
 				</ol>
+				<div class="rounded-lg border border-gray-200 dark:border-[#ffffff1a] p-3.5">
+					<div class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">{$i18n.t('Troubleshooting')}</div>
+					<ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1.5 list-disc pl-4">
+						<li>{$i18n.t('"Model not found": set the exact model id from the selector above in')} <code class="font-mono">[profiles.claudesk]</code>.</li>
+						<li>{$i18n.t('401 / Unauthorized: regenerate your API key and re-export CLAUDESK_API_KEY in the same terminal.')}</li>
+						<li>{$i18n.t('Keep')} <code class="font-mono">wire_api = "chat"</code> {$i18n.t('in the provider block so Codex uses /chat/completions.')}</li>
+						<li>{$i18n.t('A "subscription required" reply means that model needs a paid plan — pick a free model.')}</li>
+					</ul>
+				</div>
 			</div>
 		{/if}
 	</div>
