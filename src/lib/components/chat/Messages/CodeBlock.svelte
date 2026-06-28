@@ -434,7 +434,7 @@
 
 <div>
 	<div
-		class="relative {className} flex flex-col rounded-[var(--radius-xl)] border border-gray-200/60 dark:border-[#ffffff1a] my-0.5"
+		class="relative {className} code-card flex flex-col rounded-[var(--radius-xl)] border border-gray-200/60 dark:border-[#ffffff1a] overflow-hidden my-0.5"
 		dir="ltr"
 	>
 		{#if ['mermaid', 'vega', 'vega-lite'].includes(lang)}
@@ -458,22 +458,11 @@
 			{/if}
 		{:else}
 			<div
-				class="sticky {stickyButtonsClassName} left-0 right-0 py-2 px-3 gap-2 flex items-center justify-between w-full z-10 text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-[#161616] rounded-t-[var(--radius-xl)] border-b border-gray-200/60 dark:border-[#ffffff1a]"
+				class="sticky {stickyButtonsClassName} left-0 right-0 py-2 px-2.5 gap-2 flex items-center justify-end w-full z-10 text-xs"
 			>
-				<div class="flex-1 min-w-0 flex items-center gap-2">
-					<span class="size-2 rounded-full bg-[#d4a574] shrink-0"></span>
-					<Tooltip content={lang} placement="top-start">
-						<span
-							class="truncate text-ellipsis font-mono font-medium lowercase text-gray-500 dark:text-gray-400"
-						>
-							{lang || 'code'}
-						</span>
-					</Tooltip>
-				</div>
-
 				<div class="flex items-center gap-0.5 shrink-0">
 					<button
-						class="flex gap-1 items-center bg-none border-none transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/10 font-medium"
+						class="flex gap-1 items-center bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] font-medium"
 						on:click={collapseCodeBlock}
 					>
 						<div class=" -translate-y-[0.5px]">
@@ -494,7 +483,7 @@
 							</div>
 						{:else if run}
 							<button
-								class="flex gap-1 items-center run-code-button bg-none border-none transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/10 font-medium"
+								class="flex gap-1 items-center run-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] font-medium"
 								on:click={async () => {
 									code = _code;
 									await tick();
@@ -510,7 +499,7 @@
 
 					{#if save}
 						<button
-							class="save-code-button bg-none border-none transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/10 font-medium"
+							class="save-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] font-medium"
 							on:click={saveCode}
 						>
 							{saved ? $i18n.t('Saved') : $i18n.t('Save')}
@@ -518,13 +507,13 @@
 					{/if}
 
 					<button
-						class="copy-code-button bg-none border-none transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/10 font-medium"
+						class="copy-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] font-medium"
 						on:click={copyCode}>{copied ? $i18n.t('Copied') : $i18n.t('Copy')}</button
 					>
 
 					{#if preview && ['html', 'svg'].includes(lang)}
 						<button
-							class="flex gap-1 items-center run-code-button bg-none border-none transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/10 font-medium"
+							class="flex gap-1 items-center run-code-button bg-none border border-transparent dark:border-[#ffffff1a] transition rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-[#292929] hover:bg-black/10 dark:hover:bg-[#333333] font-medium"
 							on:click={previewCode}
 						>
 							<div>
@@ -536,13 +525,13 @@
 			</div>
 
 			<div
-				class="language-{lang} rounded-t-[var(--radius-xl)] -mt-8 {editorClassName
+				class="language-{lang} bg-white dark:bg-[#1a1a1a] rounded-t-[var(--radius-xl)] -mt-8 {editorClassName
 					? editorClassName
 					: executing || stdout || stderr || result
 						? ''
 						: 'rounded-b-[var(--radius-xl)]'} overflow-hidden"
 			>
-				<div class=" pt-6.5 bg-gray-50 dark:bg-[#161616]"></div>
+				<div class=" pt-6.5 bg-white dark:bg-[#1a1a1a]"></div>
 
 				{#if !collapsed}
 					{#if edit}
@@ -572,7 +561,7 @@
 					{/if}
 				{:else}
 					<div
-						class="bg-gray-50 dark:bg-[#161616] dark:text-white rounded-b-[var(--radius-xl)]! pt-1 pb-2 px-4 flex flex-col gap-2 text-xs"
+						class="bg-white dark:bg-[#1a1a1a] dark:text-white rounded-b-[var(--radius-xl)]! pt-1 pb-2 px-4 flex flex-col gap-2 text-xs"
 					>
 						<span class="text-gray-500 italic">
 							{$i18n.t('{{COUNT}} hidden lines', {
@@ -586,12 +575,12 @@
 			{#if !collapsed}
 				<div
 					id="plt-canvas-{id}"
-					class="bg-gray-50 dark:bg-black dark:text-white max-w-full overflow-x-auto scrollbar-hidden"
+					class="bg-white dark:bg-[#1a1a1a] dark:text-white max-w-full overflow-x-auto scrollbar-hidden"
 				/>
 
 				{#if executing || stdout || stderr || result || files}
 					<div
-						class="bg-gray-50 dark:bg-black dark:text-white rounded-b-[var(--radius-xl)]! pt-2 pb-3 px-3.5 flex flex-col gap-2"
+						class="bg-white dark:bg-[#1a1a1a] dark:text-white rounded-b-[var(--radius-xl)]! pt-2 pb-3 px-3.5 flex flex-col gap-2"
 					>
 						{#if executing}
 							<div class=" ">
@@ -635,3 +624,14 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	:global(.code-card .hljs),
+	:global(.code-card pre.hljs),
+	:global(.code-card pre code.hljs) {
+		background: transparent !important;
+	}
+	:global(.code-card pre.hljs) {
+		padding-top: 0.25rem;
+	}
+</style>
