@@ -128,7 +128,7 @@
 	<div class="w-full h-full flex flex-col flex-1 relative">
 		{#if contents.length > 0}
 			<div
-				class="pointer-events-auto z-20 flex justify-between items-center gap-2 px-3 py-2 border-b border-black/5 dark:border-[#ffffff1a] font-primary text-gray-900 dark:text-white"
+				class="pointer-events-auto z-20 flex justify-between items-center gap-2 px-3 py-2 border-b border-black/5 dark:border-[#ffffff1a] dark:bg-[#161616] font-primary text-gray-900 dark:text-white"
 			>
 				<!-- Version navigation -->
 				<div
