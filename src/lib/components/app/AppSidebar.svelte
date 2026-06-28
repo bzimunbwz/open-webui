@@ -31,7 +31,7 @@
 			>
 				<img
 					src="{WEBUI_BASE_URL}/static/splash.png"
-					class="size-11 dark:invert p-0.5"
+					class="size-11 object-contain p-0.5"
 					alt="logo"
 					draggable="false"
 				/>
@@ -56,7 +56,7 @@
 		>
 			<img
 				src="{WEBUI_BASE_URL}/static/favicon.png"
-				class="size-10 {selected === '' ? 'rounded-2xl' : 'rounded-full'}"
+				class="size-10 object-contain"
 				alt="logo"
 				draggable="false"
 			/>
