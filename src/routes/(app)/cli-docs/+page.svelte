@@ -65,16 +65,21 @@
 
 	// ---- snippets (reactive on key) ----
 	$: claudeRouterConfig = `{
+  "LOG": false,
   "Providers": [
     {
       "name": "claudesk",
       "api_base_url": "${API_BASE}/chat/completions",
       "api_key": "${key}",
-      "models": ["${selectedModel}"]
+      "models": ["${selectedModel}"],
+      "transformer": { "use": ["openai"] }
     }
   ],
   "Router": {
-    "default": "claudesk,${selectedModel}"
+    "default": "claudesk,${selectedModel}",
+    "background": "claudesk,${selectedModel}",
+    "think": "claudesk,${selectedModel}",
+    "longContext": "claudesk,${selectedModel}"
   }
 }`;
 
