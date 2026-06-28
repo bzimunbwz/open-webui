@@ -128,109 +128,108 @@
 	<div class="w-full h-full flex flex-col flex-1 relative">
 		{#if contents.length > 0}
 			<div
-				class="pointer-events-auto z-20 flex justify-between items-center p-2.5 font-primar text-gray-900 dark:text-white"
+				class="pointer-events-auto z-20 flex justify-between items-center gap-2 px-3 py-2 border-b border-black/5 dark:border-[#ffffff1a] font-primary text-gray-900 dark:text-white"
 			>
-				<div class="flex-1 flex items-center justify-between pr-1">
-					<div class="flex items-center space-x-2">
-						<div class="flex items-center gap-0.5 self-center min-w-fit" dir="ltr">
-							<button
-								class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition disabled:cursor-not-allowed"
-								on:click={() => navigateContent('prev')}
-								disabled={contents.length <= 1}
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke="currentColor"
-									stroke-width="2.5"
-									class="size-3.5"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										d="M15.75 19.5 8.25 12l7.5-7.5"
-									/>
-								</svg>
-							</button>
-
-							<div class="text-xs self-center dark:text-gray-100 min-w-fit">
-								{$i18n.t('Version {{selectedVersion}} of {{totalVersions}}', {
-									selectedVersion: selectedContentIdx + 1,
-									totalVersions: contents.length
-								})}
-							</div>
-
-							<button
-								class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition disabled:cursor-not-allowed"
-								on:click={() => navigateContent('next')}
-								disabled={contents.length <= 1}
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke="currentColor"
-									stroke-width="2.5"
-									class="size-3.5"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										d="m8.25 4.5 7.5 7.5-7.5 7.5"
-									/>
-								</svg>
-							</button>
-						</div>
-					</div>
-
-					<div class="flex items-center gap-1.5">
-						<button
-							class="copy-code-button bg-none border-none text-xs bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-1.5 py-0.5"
-							on:click={() => {
-								copyToClipboard(contents[selectedContentIdx].content);
-								copied = true;
-
-								setTimeout(() => {
-									copied = false;
-								}, 2000);
-							}}>{copied ? $i18n.t('Copied') : $i18n.t('Copy')}</button
+				<!-- Version navigation -->
+				<div
+					class="flex items-center gap-0.5 self-center min-w-fit rounded-[var(--radius-xl)] bg-black/5 dark:bg-white/5 p-0.5"
+					dir="ltr"
+				>
+					<button
+						class="self-center flex items-center justify-center size-7 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+						on:click={() => navigateContent('prev')}
+						disabled={contents.length <= 1}
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+							stroke-width="2.5"
+							class="size-3.5"
 						>
+							<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+						</svg>
+					</button>
 
-						<Tooltip content={$i18n.t('Download')}>
-							<button
-								class=" bg-none border-none text-xs bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md p-0.5"
-								on:click={downloadArtifact}
-							>
-								<Download className="size-3.5" />
-							</button>
-						</Tooltip>
-
-						{#if contents[selectedContentIdx].type === 'iframe'}
-							<Tooltip content={$i18n.t('Open in full screen')}>
-								<button
-									class=" bg-none border-none text-xs bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md p-0.5"
-									on:click={showFullScreen}
-								>
-									<ArrowsPointingOut className="size-3.5" />
-								</button>
-							</Tooltip>
-						{/if}
+					<div
+						class="text-xs font-medium self-center min-w-fit px-1.5 tabular-nums text-gray-600 dark:text-gray-300"
+					>
+						{$i18n.t('Version {{selectedVersion}} of {{totalVersions}}', {
+							selectedVersion: selectedContentIdx + 1,
+							totalVersions: contents.length
+						})}
 					</div>
+
+					<button
+						class="self-center flex items-center justify-center size-7 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+						on:click={() => navigateContent('next')}
+						disabled={contents.length <= 1}
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+							stroke-width="2.5"
+							class="size-3.5"
+						>
+							<path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+						</svg>
+					</button>
 				</div>
 
-				<button
-					class="self-center pointer-events-auto p-1 rounded-full bg-white dark:bg-gray-850"
-					on:click={() => {
-						dispatch('close');
-						showControls.set(false);
-						showArtifacts.set(false);
-					}}
-				>
-					<XMark className="size-3.5 text-gray-900 dark:text-white" />
-				</button>
+				<!-- Actions -->
+				<div class="flex items-center gap-1">
+					<button
+						class="copy-code-button flex items-center justify-center text-xs font-medium px-3 h-7 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-gray-700 dark:text-gray-200 transition"
+						on:click={() => {
+							copyToClipboard(contents[selectedContentIdx].content);
+							copied = true;
+
+							setTimeout(() => {
+								copied = false;
+							}, 2000);
+						}}>{copied ? $i18n.t('Copied') : $i18n.t('Copy')}</button
+					>
+
+					<Tooltip content={$i18n.t('Download')}>
+						<button
+							class="flex items-center justify-center size-7 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-gray-700 dark:text-gray-200 transition"
+							on:click={downloadArtifact}
+						>
+							<Download className="size-3.5" />
+						</button>
+					</Tooltip>
+
+					{#if contents[selectedContentIdx].type === 'iframe'}
+						<Tooltip content={$i18n.t('Open in full screen')}>
+							<button
+								class="flex items-center justify-center size-7 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-gray-700 dark:text-gray-200 transition"
+								on:click={showFullScreen}
+							>
+								<ArrowsPointingOut className="size-3.5" />
+							</button>
+						</Tooltip>
+					{/if}
+
+					<div class="w-px h-5 bg-black/10 dark:bg-white/10 mx-0.5"></div>
+
+					<Tooltip content={$i18n.t('Close')}>
+						<button
+							class="flex items-center justify-center size-7 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white transition"
+							on:click={() => {
+								dispatch('close');
+								showControls.set(false);
+								showArtifacts.set(false);
+							}}
+						>
+							<XMark className="size-4" />
+						</button>
+					</Tooltip>
+				</div>
 			</div>
-		{/if}
+			{/if}
 
 		{#if overlay}
 			<div class=" absolute top-0 left-0 right-0 bottom-0 z-10"></div>
