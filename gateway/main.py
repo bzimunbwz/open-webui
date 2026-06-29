@@ -60,6 +60,7 @@ PROVIDER_MODELS_CACHE_PATH = os.path.join(DATA_DIR, "provider_models_cache.json"
 ENABLED_MODELS_PATH = os.path.join(DATA_DIR, "enabled_models.json")
 PROVIDER_MODEL_TIERS_PATH = os.path.join(DATA_DIR, "provider_model_tiers.json")
 DELETED_MODELS_PATH = os.path.join(DATA_DIR, "deleted_models.json")
+USAGE_PATH = os.path.join(DATA_DIR, "usage.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
 
 # Runtime state
@@ -105,6 +106,7 @@ def load_all():
     load_enabled_models()
     load_provider_model_tiers()
     load_deleted_models()
+    load_usage()
 
 
 def load_providers():
@@ -209,6 +211,9 @@ def load_packages():
                 "price_monthly": 0,
                 "price_yearly": 0,
                 "features": ["Access to free-tier models", "Community support"],
+                "token_limit_month": 200000,
+                "msg_limit_4h": 10,
+                "msg_limit_7d": 50,
                 "active": True,
                 "order": 0,
             },
@@ -221,6 +226,9 @@ def load_packages():
                 "price_monthly": 9.99,
                 "price_yearly": 99.99,
                 "features": ["All free models", "Premium models", "Priority support", "Higher rate limits"],
+                "token_limit_month": 5000000,
+                "msg_limit_4h": 40,
+                "msg_limit_7d": 300,
                 "active": True,
                 "order": 1,
             },
@@ -233,6 +241,9 @@ def load_packages():
                 "price_monthly": 29.99,
                 "price_yearly": 299.99,
                 "features": ["All Pro features", "Custom model access", "Dedicated support", "SLA guarantee"],
+                "token_limit_month": 100000000,
+                "msg_limit_4h": 150,
+                "msg_limit_7d": 1200,
                 "active": True,
                 "order": 2,
             },
@@ -244,6 +255,103 @@ def save_packages():
     ensure_data_dir()
     with open(PACKAGES_PATH, "w") as f:
         json.dump(packages, f, indent=2)
+
+
+# ── Usage tracking & per-plan limits (4h/7d messages + monthly tokens) ───────
+usage_log: dict = {}            # email -> list[[ts, tokens]]  (one entry per request)
+WINDOW_4H = 4 * 3600
+WINDOW_7D = 7 * 86400
+WINDOW_30D = 30 * 86400
+DEFAULT_TIER_LIMITS = {
+    "free":       {"msg_4h": 10,  "msg_7d": 50,   "token_month": 200000},
+    "pro":        {"msg_4h": 40,  "msg_7d": 300,  "token_month": 5000000},
+    "max":        {"msg_4h": 150, "msg_7d": 1200, "token_month": 100000000},
+    "enterprise": {"msg_4h": 150, "msg_7d": 1200, "token_month": 100000000},
+}
+
+def load_usage():
+    global usage_log
+    try:
+        with open(USAGE_PATH) as f:
+            usage_log = json.load(f)
+    except FileNotFoundError:
+        usage_log = {}
+
+def save_usage():
+    ensure_data_dir()
+    with open(USAGE_PATH, "w") as f:
+        json.dump(usage_log, f)
+
+def record_usage(email: str, tokens: int):
+    if not email:
+        return
+    email = email.strip().lower()
+    now = time.time()
+    cutoff = now - WINDOW_30D
+    entries = [e for e in usage_log.get(email, []) if e and e[0] >= cutoff]
+    entries.append([now, int(max(0, tokens))])
+    usage_log[email] = entries
+    try:
+        save_usage()
+    except Exception as e:
+        logger.warning(f"save_usage failed: {e}")
+
+def usage_in_window(email: str, window: float):
+    """Returns (tokens, messages, resets_in_seconds) within the rolling window."""
+    email = (email or "").strip().lower()
+    now = time.time()
+    cutoff = now - window
+    tokens = 0
+    msgs = 0
+    oldest = None
+    for ts, tok in usage_log.get(email, []):
+        if ts >= cutoff:
+            tokens += tok
+            msgs += 1
+            if oldest is None or ts < oldest:
+                oldest = ts
+    resets_in = int((oldest + window) - now) if oldest is not None else 0
+    return tokens, msgs, max(0, resets_in)
+
+def get_user_limits(email: str) -> dict:
+    email = (email or "").strip().lower()
+    sub = subscriptions.get(email)
+    tier = "free"
+    pkg = None
+    pkg_name = "Free"
+    if sub and sub.get("active", True):
+        tier = sub.get("tier", "free")
+        pkg = packages.get(sub.get("package_id", ""))
+        if pkg:
+            pkg_name = pkg.get("name", tier)
+    d = DEFAULT_TIER_LIMITS.get(tier, DEFAULT_TIER_LIMITS["free"])
+    return {
+        "tier": tier,
+        "package": pkg_name,
+        "msg_4h": int((pkg or {}).get("msg_limit_4h", d["msg_4h"]) or 0),
+        "msg_7d": int((pkg or {}).get("msg_limit_7d", d["msg_7d"]) or 0),
+        "token_month": int((pkg or {}).get("token_limit_month", d["token_month"]) or 0),
+    }
+
+def estimate_prompt_tokens(body: dict) -> int:
+    chars = 0
+    for m in body.get("messages", []):
+        c = m.get("content", "")
+        if isinstance(c, str):
+            chars += len(c)
+        elif isinstance(c, list):
+            for part in c:
+                if isinstance(part, dict):
+                    chars += len(str(part.get("text", "")))
+    return max(1, chars // 4)
+
+def _fmt_duration(secs: int) -> str:
+    secs = max(0, int(secs))
+    if secs >= 86400:
+        return f"{secs // 86400}d {(secs % 86400) // 3600}h"
+    if secs >= 3600:
+        return f"{secs // 3600}h {(secs % 3600) // 60}m"
+    return f"{max(1, secs // 60)}m"
 
 
 def load_coupons():
@@ -1365,6 +1473,30 @@ def build_upsell_message(model_name: str) -> str:
     return "\n".join(lines)
 
 
+def usage_limit_response(model_id: str, stream: bool, window_label: str, resets_in: int):
+    content = (
+        f"\u23f3 **You've reached your {window_label} limit.**\n\n"
+        f"It resets in about **{_fmt_duration(resets_in)}**. "
+        f"Need more? [Upgrade your plan]({get_upgrade_url()}) for higher limits."
+    )
+    created = int(time.time())
+    cid = f"chatcmpl-limit-{created}"
+    if stream:
+        def gen():
+            first = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
+                     "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}]}
+            yield f"data: {json.dumps(first)}\n\n"
+            last = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+            yield f"data: {json.dumps(last)}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(gen(), media_type="text/event-stream")
+    payload = {"id": cid, "object": "chat.completion", "created": created, "model": model_id,
+               "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+               "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
+    return JSONResponse(payload)
+
+
 def subscription_required_response(model_name: str, model_id: str, stream: bool):
     """Return the upsell as a normal 200 chat completion (stream or JSON) so the
     stock Open WebUI UI renders it as a clean assistant message, not a red error."""
@@ -1429,6 +1561,20 @@ async def chat_completions(request: Request):
     # Check subscription access — return a friendly in-chat upsell instead of a raw 403
     if tier != "free" and not can_access_model(user_email, requested_model):
         return subscription_required_response(facade["name"], requested_model, stream)
+
+    # Enforce per-plan usage limits: 4h & 7d message counts + monthly token cap
+    _req_admin = request.headers.get("Authorization", "") == f"Bearer {ADMIN_API_KEY}"
+    if not _req_admin and user_email:
+        _lim = get_user_limits(user_email)
+        _, _m4, _r4 = usage_in_window(user_email, WINDOW_4H)
+        _, _m7, _r7 = usage_in_window(user_email, WINDOW_7D)
+        _t30, _, _r30 = usage_in_window(user_email, WINDOW_30D)
+        if _lim["msg_4h"] and _m4 >= _lim["msg_4h"]:
+            return usage_limit_response(requested_model, stream, "4-hour message", _r4)
+        if _lim["msg_7d"] and _m7 >= _lim["msg_7d"]:
+            return usage_limit_response(requested_model, stream, "7-day message", _r7)
+        if _lim["token_month"] and _t30 >= _lim["token_month"]:
+            return usage_limit_response(requested_model, stream, "monthly token", _r30)
 
     # Check if request is from admin (skip identity injection for admin)
     is_admin = request.headers.get("Authorization", "") == f"Bearer {ADMIN_API_KEY}"
@@ -1510,13 +1656,20 @@ async def chat_completions(request: Request):
                 http_resp = result["resp"]
                 http_client = result["client"]
 
-                async def stream_out(resp=http_resp, client=http_client):
+                _est_prompt = estimate_prompt_tokens(body)
+                async def stream_out(resp=http_resp, client=http_client, _email=user_email, _prompt=_est_prompt):
+                    collected = 0
                     try:
                         async for chunk in resp.aiter_bytes(4096):
+                            collected += len(chunk)
                             yield chunk
                     finally:
                         await resp.aclose()
                         await client.aclose()
+                        try:
+                            record_usage(_email, _prompt + max(1, collected // 6))
+                        except Exception:
+                            pass
 
                 # Forward the upstream content-type if present
                 upstream_ct = http_resp.headers.get("content-type", "text/event-stream")
@@ -1528,6 +1681,11 @@ async def chat_completions(request: Request):
             else:
                 data = result["data"]
                 data["model"] = requested_model
+                try:
+                    _tok = int((data.get("usage") or {}).get("total_tokens", 0)) or estimate_prompt_tokens(body)
+                    record_usage(user_email, _tok)
+                except Exception:
+                    pass
                 return JSONResponse(
                     content=data,
                     headers={"X-Gateway-Provider": pid, "X-Model-Tier": tier},
@@ -1538,6 +1696,29 @@ async def chat_completions(request: Request):
 
 
 # ── User Subscription Routes ────────────────────────────────────────────────
+
+@app.get("/api/usage")
+async def api_usage(request: Request, email: str = ""):
+    """A user's usage + limits: 4h messages, 7d messages, monthly tokens."""
+    user_email = (email or get_user_email(request)).strip().lower()
+    lim = get_user_limits(user_email)
+    _, m4, r4 = usage_in_window(user_email, WINDOW_4H)
+    _, m7, r7 = usage_in_window(user_email, WINDOW_7D)
+    t30, _, r30 = usage_in_window(user_email, WINDOW_30D)
+    return {
+        "email": user_email,
+        "tier": lim["tier"],
+        "package": lim["package"],
+        "limits": [
+            {"key": "session", "label": "Current session", "unit": "messages",
+             "window": "4 hours", "used": m4, "limit": lim["msg_4h"], "resets_in_seconds": r4},
+            {"key": "weekly_messages", "label": "Weekly messages", "unit": "messages",
+             "window": "7 days", "used": m7, "limit": lim["msg_7d"], "resets_in_seconds": r7},
+            {"key": "monthly_tokens", "label": "Monthly tokens", "unit": "tokens",
+             "window": "30 days", "used": t30, "limit": lim["token_month"], "resets_in_seconds": r30},
+        ],
+    }
+
 
 @app.get("/api/packages")
 async def list_packages():
@@ -2139,6 +2320,9 @@ async def admin_create_package(request: Request):
         "features": body.get("features", []),
         "active": body.get("active", True),
         "order": body.get("order", len(packages)),
+        "token_limit_month": int(body.get("token_limit_month", 0) or 0),
+        "msg_limit_4h": int(body.get("msg_limit_4h", 0) or 0),
+        "msg_limit_7d": int(body.get("msg_limit_7d", 0) or 0),
     }
     save_packages()
     return {"status": "created", "package": packages[pkg_id]}
@@ -2152,10 +2336,12 @@ async def admin_update_package(package_id: str, request: Request):
 
     body = await request.json()
     pkg = packages[package_id]
-    for key in ["name", "tier", "description", "models", "price_monthly", "price_yearly", "features", "active", "order"]:
+    for key in ["name", "tier", "description", "models", "price_monthly", "price_yearly", "features", "active", "order", "token_limit_month", "msg_limit_4h", "msg_limit_7d"]:
         if key in body:
             if key in ("price_monthly", "price_yearly"):
                 pkg[key] = float(body[key])
+            elif key in ("token_limit_month", "msg_limit_4h", "msg_limit_7d"):
+                pkg[key] = int(body[key] or 0)
             else:
                 pkg[key] = body[key]
     save_packages()
