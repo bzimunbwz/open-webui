@@ -11,7 +11,7 @@
 	let showForm = false;
 	let editingPkg: any = null;
 
-	let form = { id: '', name: '', tier: 'pro', description: '', models: [] as string[], price_monthly: 0, price_yearly: 0, features: [''], active: true, order: 0 };
+	let form = { id: '', name: '', tier: 'pro', description: '', models: [] as string[], price_monthly: 0, price_yearly: 0, features: [''], active: true, order: 0, token_limit_month: 0, msg_limit_4h: 0, msg_limit_7d: 0 };
 
 	async function gw(path: string, method = 'GET', body?: any) {
 		const res = await fetch(`${GW}${path}`, {
@@ -47,13 +47,16 @@
 			features: pkg.features?.length ? [...pkg.features] : [''],
 			active: pkg.active !== false,
 			order: pkg.order || 0,
+			token_limit_month: pkg.token_limit_month || 0,
+			msg_limit_4h: pkg.msg_limit_4h || 0,
+			msg_limit_7d: pkg.msg_limit_7d || 0,
 		};
 		showForm = true;
 	}
 
 	function startNew() {
 		editingPkg = null;
-		form = { id: '', name: '', tier: 'pro', description: '', models: [], price_monthly: 0, price_yearly: 0, features: [''], active: true, order: packages.length };
+		form = { id: '', name: '', tier: 'pro', description: '', models: [], price_monthly: 0, price_yearly: 0, features: [''], active: true, order: packages.length, token_limit_month: 0, msg_limit_4h: 0, msg_limit_7d: 0 };
 		showForm = true;
 	}
 
@@ -161,6 +164,25 @@
 						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
 				</div>
 			</div>
+
+			<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-1">
+				<div>
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Monthly token limit</label>
+					<input type="number" bind:value={form.token_limit_month}
+						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
+				</div>
+				<div>
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Messages / 4 hours</label>
+					<input type="number" bind:value={form.msg_limit_4h}
+						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
+				</div>
+				<div>
+					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Messages / 7 days</label>
+					<input type="number" bind:value={form.msg_limit_7d}
+						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
+				</div>
+			</div>
+			<div class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">0 = unlimited \u00b7 tokens reset monthly, messages on rolling 4h / 7d windows.</div>
 
 			<!-- Features -->
 			<div class="mb-3">
