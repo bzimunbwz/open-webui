@@ -1,0 +1,70 @@
+# ClaudeSK — DigitalOcean deployment (Open WebUI + facade gateway + Caddy HTTPS)
+# Usage on an Ubuntu droplet (4 GB+ RAM recommended):
+#   docker compose -f docker-compose.claudesk.yml up -d --build
+services:
+  open-webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USE_CUDA: "false"
+        USE_OLLAMA: "false"
+        USE_SLIM: "true"
+    image: claudesk-webui
+    container_name: claudesk-webui
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      WEBUI_NAME: ${WEBUI_NAME:-ClaudeSK}
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
+      ENABLE_FORWARD_USER_INFO_HEADERS: "true"
+      ENABLE_PERSISTENT_CONFIG: "true"
+      ENABLE_OLLAMA_API: "false"
+      RAG_EMBEDDING_ENGINE: ${RAG_EMBEDDING_ENGINE:-}
+    volumes:
+      - openwebui-data:/app/backend/data
+    depends_on:
+      - gateway
+    expose:
+      - "8080"
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    image: claudesk-gateway
+    container_name: claudesk-gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "3000"
+      GATEWAY_DATA_DIR: /app/data
+      GATEWAY_ADMIN_KEY: ${GATEWAY_ADMIN_KEY}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:-}
+      BINANCE_PROXY: ${BINANCE_PROXY:-}
+    volumes:
+      - gateway-data:/app/data
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: claudesk-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - open-webui
+      - gateway
+
+volumes:
+  openwebui-data:
+  gateway-data:
+  caddy-data:
+  caddy-config:

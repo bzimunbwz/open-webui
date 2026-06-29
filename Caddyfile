@@ -1,0 +1,8 @@
+# ClaudeSK reverse proxy — automatic HTTPS via Let's Encrypt
+claudesk.pro {
+	reverse_proxy open-webui:8080
+}
+
+gateway.claudesk.pro {
+	reverse_proxy gateway:3000
+}
