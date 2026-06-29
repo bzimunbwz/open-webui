@@ -11,6 +11,7 @@
 	import About from './Settings/About.svelte';
 	import General from './Settings/General.svelte';
 	import Interface from './Settings/Interface.svelte';
+	import Usage from './Settings/Usage.svelte';
 	import Audio from './Settings/Audio.svelte';
 	import DataControls from './Settings/DataControls.svelte';
 	import Personalization from './Settings/Personalization.svelte';
@@ -474,6 +475,11 @@
 				'version info',
 				'versioninfo'
 			]
+		},
+		{
+			id: 'usage',
+			title: 'Usage',
+			keywords: ['usage', 'limits', 'tokens', 'messages', 'quota', 'consumption', 'plan usage']
 		}
 	];
 
@@ -852,6 +858,30 @@
 								</div>
 								<div class=" self-center">{$i18n.t('About')}</div>
 							</button>
+						{:else if tabId === 'usage'}
+							<button
+								role="tab"
+								aria-controls="tab-usage"
+								aria-selected={selectedTab === 'usage'}
+								class={`px-0.5 md:px-2.5 py-1 min-w-fit rounded-xl flex-1 md:flex-none flex text-left transition
+								${
+									selectedTab === 'usage'
+										? ($settings?.highContrastMode ?? false)
+											? 'dark:bg-gray-800 bg-gray-200'
+											: ''
+										: ($settings?.highContrastMode ?? false)
+											? 'hover:bg-gray-200 dark:hover:bg-gray-800'
+											: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'
+								}`}
+								on:click={() => {
+									selectedTab = 'usage';
+								}}
+							>
+								<div class=" self-center mr-2">
+									<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
+								</div>
+								<div class=" self-center">{$i18n.t('Usage')}</div>
+							</button>
 						{/if}
 					{/each}
 				{:else}
@@ -936,6 +966,8 @@
 					/>
 				{:else if selectedTab === 'about'}
 					<About />
+				{:else if selectedTab === 'usage'}
+					<Usage />
 				{/if}
 			</div>
 		</div>
