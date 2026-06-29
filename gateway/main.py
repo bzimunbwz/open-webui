@@ -1760,6 +1760,41 @@ async def admin_get_config(request: Request):
     }
 
 
+@app.get("/admin/export")
+async def admin_export(request: Request):
+    """Dump every JSON data file in DATA_DIR so it can be migrated to another server."""
+    check_admin(request)
+    import glob
+    files = {}
+    for path in sorted(glob.glob(os.path.join(DATA_DIR, "*.json"))):
+        try:
+            with open(path, "r") as f:
+                files[os.path.basename(path)] = json.load(f)
+        except Exception as e:
+            logger.warning(f"export: could not read {path}: {e}")
+    return {"data_dir": DATA_DIR, "count": len(files), "files": files}
+
+
+@app.post("/admin/import")
+async def admin_import(request: Request):
+    """Restore data files produced by /admin/export, then reload state in memory."""
+    check_admin(request)
+    body = await request.json()
+    files = body.get("files", {})
+    if not isinstance(files, dict):
+        raise HTTPException(status_code=400, detail="Body must be {\"files\": {name: content}}")
+    written = []
+    for name, content in files.items():
+        if (not name.endswith(".json")) or ("/" in name) or ("\\" in name) or name.startswith("."):
+            continue
+        with open(os.path.join(DATA_DIR, name), "w") as f:
+            json.dump(content, f, indent=2)
+        written.append(name)
+    load_all()
+    return {"imported": written, "providers": len(providers), "models": len(facade_models),
+            "packages": len(packages), "coupons": len(coupons), "subscriptions": len(subscriptions)}
+
+
 @app.get("/admin/providers")
 async def admin_list_providers(request: Request):
     check_admin(request)
