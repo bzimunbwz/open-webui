@@ -72,6 +72,7 @@
 	let renderMarkdownInUserMessages = true;
 	let renderMarkdownInAssistantMessages = true;
 	let expandDetails = false;
+	let showReasoning = false;
 	let renderMarkdownInPreviews = true;
 	let showChatTitleInTab = true;
 
@@ -237,6 +238,7 @@
 		renderMarkdownInUserMessages = $settings?.renderMarkdownInUserMessages ?? true;
 		renderMarkdownInAssistantMessages = $settings?.renderMarkdownInAssistantMessages ?? true;
 		expandDetails = $settings?.expandDetails ?? false;
+		showReasoning = $settings?.showReasoning ?? false;
 		renderMarkdownInPreviews = $settings?.renderMarkdownInPreviews ?? true;
 
 		landingPageMode = $settings?.landingPageMode ?? '';
@@ -449,6 +451,25 @@
 							bind:state={showChatTitleInTab}
 							on:change={() => {
 								saveSettings({ showChatTitleInTab });
+							}}
+						/>
+					</div>
+				</div>
+			</div>
+
+			<div>
+				<div class="py-0.5 flex w-full justify-between">
+					<div id="show-reasoning-label" class=" self-center text-xs">
+						{$i18n.t('Show model reasoning')}
+					</div>
+
+					<div class="flex items-center gap-2 p-1">
+						<Switch
+							ariaLabelledbyId="show-reasoning-label"
+							tooltip={true}
+							bind:state={showReasoning}
+							on:change={() => {
+								saveSettings({ showReasoning });
 							}}
 						/>
 					</div>

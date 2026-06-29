@@ -77,10 +77,13 @@
 			detailGroup = [];
 		};
 
-		// Hide model reasoning/thinking blocks from users
-		const _visibleTokens = (tokenList || []).filter(
-			(t) => !((t)?.type === 'details' && ((t)?.attributes?.type ?? '') === 'reasoning')
-		);
+		// Hide model reasoning/thinking blocks unless the user enables them
+		const _showReasoning = $settings?.showReasoning ?? false;
+		const _visibleTokens = _showReasoning
+			? (tokenList || [])
+			: (tokenList || []).filter(
+					(t) => !((t)?.type === 'details' && ((t)?.attributes?.type ?? '') === 'reasoning')
+				);
 		for (const token of _visibleTokens) {
 			if (isGroupableDetailToken(token)) {
 				detailGroup.push(token);
