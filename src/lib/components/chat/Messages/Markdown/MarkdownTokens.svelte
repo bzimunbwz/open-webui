@@ -77,7 +77,11 @@
 			detailGroup = [];
 		};
 
-		for (const token of tokenList) {
+		// Hide model reasoning/thinking blocks from users
+		const _visibleTokens = (tokenList || []).filter(
+			(t) => !((t)?.type === 'details' && ((t)?.attributes?.type ?? '') === 'reasoning')
+		);
+		for (const token of _visibleTokens) {
 			if (isGroupableDetailToken(token)) {
 				detailGroup.push(token);
 			} else {
