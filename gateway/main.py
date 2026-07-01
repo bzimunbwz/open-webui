@@ -2678,6 +2678,27 @@ async def admin_set_credits(user_email: str, request: Request):
     return {"status": "ok", "email": email, "credits": credits.get(email, 0)}
 
 
+@app.post("/admin/usage/{user_email}/reset")
+async def admin_reset_usage(user_email: str, request: Request):
+    """Clear a single user's recorded usage (messages + tokens)."""
+    check_admin(request)
+    email = user_email.strip().lower()
+    existed = email in usage_log
+    usage_log.pop(email, None)
+    save_usage()
+    return {"status": "reset", "email": email, "existed": existed}
+
+
+@app.post("/admin/usage/reset-all")
+async def admin_reset_all_usage(request: Request):
+    """Clear ALL recorded usage (use to wipe inflated data from the old counter)."""
+    check_admin(request)
+    n = len(usage_log)
+    usage_log.clear()
+    save_usage()
+    return {"status": "reset-all", "cleared_users": n}
+
+
 @app.delete("/admin/subscriptions/{user_email}")
 async def admin_revoke_subscription(user_email: str, request: Request):
     check_admin(request)
