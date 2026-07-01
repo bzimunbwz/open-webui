@@ -117,6 +117,25 @@
 		} catch (e: any) { toast.error(e.message); }
 	}
 
+	async function resetUsage(email: string) {
+		if (!confirm(`Reset recorded usage for ${email}? (clears their message/token counts)`)) return;
+		try {
+			await gw(`/admin/usage/${encodeURIComponent(email)}/reset`, 'POST', {});
+			toast.success(`Usage reset for ${email}`);
+			if (usageByEmail[email]) { delete usageByEmail[email]; usageByEmail = usageByEmail; }
+			if (expandedEmail === email) expandedEmail = '';
+		} catch (e: any) { toast.error(e.message); }
+	}
+
+	async function resetAllUsage() {
+		if (!confirm("Reset ALL users' recorded usage? Use this once to clear inflated counts from the old counter.")) return;
+		try {
+			const r = await gw('/admin/usage/reset-all', 'POST', {});
+			toast.success(`Cleared usage for ${r.cleared_users ?? 0} users`);
+			usageByEmail = {};
+		} catch (e: any) { toast.error(e.message); }
+	}
+
 	async function approvePayment(id: string) {
 		try {
 			await gw(`/admin/payments/${id}/approve`, 'POST');
@@ -277,7 +296,9 @@
 	{:else if activeTab === 'subscriptions'}
 		<!-- Subscriptions -->
 		<div class="px-6 pb-6">
-			<div class="flex justify-end mb-4">
+			<div class="flex justify-end gap-2 mb-4">
+				<button on:click={resetAllUsage}
+					class="text-xs px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition">Reset All Usage</button>
 				<button on:click={() => { showGrant = !showGrant; }}
 					class="text-xs px-3 py-1.5 bg-blue-600 text-gray-900 dark:text-white rounded-lg hover:bg-blue-700 transition">+ Grant Subscription</button>
 			</div>
@@ -347,6 +368,7 @@
 											{/each}
 										</select>
 										<button on:click={() => toggleUsage(sub.email)} class="text-blue-500 hover:text-blue-400 text-xs">Usage</button>
+										<button on:click={() => resetUsage(sub.email)} class="text-amber-500 hover:text-amber-400 text-xs">Reset</button>
 										<button on:click={() => revokeSub(sub.email)} class="text-red-500 hover:text-red-400 text-xs">Revoke</button>
 									</div>
 								</td>
