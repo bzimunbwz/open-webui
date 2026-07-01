@@ -80,6 +80,43 @@
 		} catch (e: any) { toast.error(e.message); }
 	}
 
+	// Per-user usage + inline plan change
+	let usageByEmail: Record<string, any> = {};
+	let expandedEmail = '';
+	let loadingUsage = '';
+
+	const fmtNum = (n: number) => (n ?? 0).toLocaleString();
+	const pct = (used: number, limit: number) => (limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0);
+	const fmtReset = (x: number) => {
+		x = Math.max(0, Math.floor(x || 0));
+		if (x >= 86400) return `${Math.floor(x / 86400)}d ${Math.floor((x % 86400) / 3600)}h`;
+		if (x >= 3600) return `${Math.floor(x / 3600)}h ${Math.floor((x % 3600) / 60)}m`;
+		return `${Math.max(1, Math.floor(x / 60))}m`;
+	};
+
+	async function toggleUsage(email: string) {
+		if (expandedEmail === email) { expandedEmail = ''; return; }
+		expandedEmail = email;
+		if (!usageByEmail[email]) {
+			loadingUsage = email;
+			try {
+				const res = await fetch(`${GW}/api/usage?email=${encodeURIComponent(email)}`);
+				usageByEmail[email] = await res.json();
+				usageByEmail = usageByEmail;
+			} catch (e) { toast.error('Could not load usage'); }
+			loadingUsage = '';
+		}
+	}
+
+	async function changePlan(email: string, packageId: string) {
+		if (!packageId) return;
+		try {
+			await gw(`/admin/subscriptions/${encodeURIComponent(email)}/grant`, 'POST', { package_id: packageId, months: 1 });
+			toast.success(`${email} \u2192 ${packageId}`);
+			await loadAll();
+		} catch (e: any) { toast.error(e.message); }
+	}
+
 	async function approvePayment(id: string) {
 		try {
 			await gw(`/admin/payments/${id}/approve`, 'POST');
@@ -300,10 +337,45 @@
 								<td data-label="Method" class="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">{sub.payment_method || '—'}</td>
 								<td data-label="Started" class="px-4 py-3 text-xs text-gray-500">{sub.started_at ? sub.started_at.slice(0, 10) : '—'}</td>
 								<td data-label="Expires" class="px-4 py-3 text-xs {expired ? 'text-red-400' : 'text-gray-500'}">{sub.expires_at ? sub.expires_at.slice(0, 10) : '—'} {expired ? '(expired)' : ''}</td>
-								<td data-label="Actions" class="px-4 py-3 text-right">
-									<button on:click={() => revokeSub(sub.email)} class="text-red-500 hover:text-red-400 text-xs">Revoke</button>
+								<td data-label="Actions" class="px-4 py-3 text-right whitespace-nowrap">
+									<div class="inline-flex items-center gap-2 justify-end">
+										<select class="text-xs rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-2 py-1"
+											on:change={(e) => { changePlan(sub.email, e.currentTarget.value); e.currentTarget.value = ''; }}>
+											<option value="" disabled selected>Change plan\u2026</option>
+											{#each packages.filter((p) => p.id !== 'free') as pkg}
+												<option value={pkg.id} disabled={pkg.id === sub.package_id}>{pkg.name}{pkg.id === sub.package_id ? ' (current)' : ''}</option>
+											{/each}
+										</select>
+										<button on:click={() => toggleUsage(sub.email)} class="text-blue-500 hover:text-blue-400 text-xs">Usage</button>
+										<button on:click={() => revokeSub(sub.email)} class="text-red-500 hover:text-red-400 text-xs">Revoke</button>
+									</div>
 								</td>
 							</tr>
+							{#if expandedEmail === sub.email}
+								<tr class="border-b border-gray-200 dark:border-gray-800/50 bg-gray-50 dark:bg-gray-800/20">
+									<td colspan="7" class="px-4 py-3">
+										{#if loadingUsage === sub.email}
+											<div class="text-xs text-gray-500">Loading usage\u2026</div>
+										{:else if usageByEmail[sub.email]?.limits}
+											<div class="flex flex-col gap-3 max-w-xl">
+												{#each usageByEmail[sub.email].limits as l}
+													<div>
+														<div class="flex justify-between text-xs mb-1 gap-3">
+															<span class="text-gray-700 dark:text-gray-300 font-medium">{l.label}</span>
+															<span class="text-gray-500">{fmtNum(l.used)}{l.limit ? ` / ${fmtNum(l.limit)}` : ''} {l.unit}{l.used > 0 ? ` \u00b7 resets ${fmtReset(l.resets_in_seconds)}` : ''}</span>
+														</div>
+														<div class="w-full h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+															<div class="h-full rounded-full {pct(l.used, l.limit) >= 90 ? 'bg-red-500' : 'bg-[#d4a574]'}" style="width: {l.limit ? pct(l.used, l.limit) : 0}%"></div>
+														</div>
+													</div>
+												{/each}
+											</div>
+										{:else}
+											<div class="text-xs text-gray-500">No usage data.</div>
+										{/if}
+									</td>
+								</tr>
+							{/if}
 						{/each}
 					</tbody>
 				</table>
