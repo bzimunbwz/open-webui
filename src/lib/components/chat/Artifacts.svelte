@@ -105,7 +105,7 @@
 			});
 			if (!res.ok) throw new Error(await res.text());
 			const data = await res.json();
-			const link = `${GW}${data.path}`;
+			const link = data.url || `${GW}${data.path}`;
 			await navigator.clipboard.writeText(link);
 			toast.success($i18n.t('Share link copied to clipboard'));
 		} catch (e) {

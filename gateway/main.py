@@ -1814,7 +1814,10 @@ async def share_artifact(request: Request):
         save_artifacts()
     except Exception as e:
         logger.warning(f"save_artifacts failed: {e}")
-    return {"id": sid, "path": f"/s/{sid}"}
+    # Prefer a branded base (set PREVIEW_BASE_URL env, e.g. https://preview.claudesk.pro),
+    # otherwise fall back to whatever host the request came in on.
+    base = (os.getenv("PREVIEW_BASE_URL", "") or "").strip().rstrip("/") or str(request.base_url).rstrip("/")
+    return {"id": sid, "path": f"/s/{sid}", "url": f"{base}/s/{sid}"}
 
 
 @app.get("/s/{sid}")
