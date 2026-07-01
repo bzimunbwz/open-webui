@@ -33,7 +33,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from redis import Redis
@@ -2924,6 +2924,25 @@ async def async_db_ping() -> None:
 @app.get('/health')
 async def healthcheck():
     return {'status': True}
+
+
+@app.get('/preview/{artifact_id}')
+async def shared_artifact_preview(artifact_id: str):
+    """Public preview of a shared artifact — proxied from the facade gateway so links
+    live on this app's domain (e.g. claudesk.pro/preview/{id})."""
+    gw = os.environ.get(
+        'ARTIFACT_GATEWAY_URL', 'https://webapp-2nd-service-production.up.railway.app'
+    ).rstrip('/')
+    try:
+        async with aiohttp.ClientSession(trust_env=True) as session:
+            async with session.get(f'{gw}/s/{artifact_id}') as r:
+                body = await r.text()
+                return HTMLResponse(content=body, status_code=r.status)
+    except Exception:
+        return HTMLResponse(
+            "<!doctype html><html><body style='font-family:sans-serif;padding:2rem'>Preview unavailable.</body></html>",
+            status_code=502,
+        )
 
 
 @app.get('/ready')
