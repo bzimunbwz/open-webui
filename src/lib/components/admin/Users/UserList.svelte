@@ -57,6 +57,29 @@
 	let showEditUserModal = false;
 	let showUserPreviewModal = false;
 
+	const GW_CREDITS = 'https://webapp-2nd-service-production.up.railway.app';
+	const gwCreditsKey = () => localStorage.getItem('gateway_admin_key') || 'sk-gateway-admin';
+	const setCreditsHandler = async (u) => {
+		const input = window.prompt(
+			`Bonus monthly-token credits for ${u.email}\n(extra tokens on top of their plan; 0 to clear):`,
+			'0'
+		);
+		if (input === null) return;
+		const n = parseInt(String(input).replace(/[^0-9]/g, ''), 10);
+		if (isNaN(n)) { toast.error('Enter a number'); return; }
+		try {
+			const res = await fetch(`${GW_CREDITS}/admin/credits/${encodeURIComponent(u.email)}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${gwCreditsKey()}` },
+				body: JSON.stringify({ credits: n })
+			});
+			if (!res.ok) throw new Error(await res.text());
+			toast.success(`${u.email}: ${n.toLocaleString()} bonus credits`);
+		} catch (e) {
+			toast.error('Failed to set credits');
+		}
+	};
+
 	const deleteUserHandler = async (id) => {
 		const res = await deleteUserById(localStorage.token, id).catch((error) => {
 			toast.error(`${error}`);
@@ -333,6 +356,16 @@
 												<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
 													<path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
 												</svg>
+											</button>
+										</Tooltip>
+
+										<Tooltip content={$i18n.t('Add Credits')}>
+											<button
+												class="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-lg transition"
+												aria-label={$i18n.t('Add Credits')}
+												on:click={() => setCreditsHandler(user)}
+											>
+												<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
 											</button>
 										</Tooltip>
 
