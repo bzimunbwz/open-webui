@@ -61,6 +61,7 @@ ENABLED_MODELS_PATH = os.path.join(DATA_DIR, "enabled_models.json")
 PROVIDER_MODEL_TIERS_PATH = os.path.join(DATA_DIR, "provider_model_tiers.json")
 DELETED_MODELS_PATH = os.path.join(DATA_DIR, "deleted_models.json")
 USAGE_PATH = os.path.join(DATA_DIR, "usage.json")
+CREDITS_PATH = os.path.join(DATA_DIR, "credits.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
 
 # Runtime state
@@ -107,6 +108,7 @@ def load_all():
     load_provider_model_tiers()
     load_deleted_models()
     load_usage()
+    load_credits()
 
 
 def load_providers():
@@ -259,6 +261,7 @@ def save_packages():
 
 # ── Usage tracking & per-plan limits (4h/7d messages + monthly tokens) ───────
 usage_log: dict = {}            # email -> list[[ts, tokens]]  (one entry per request)
+credits: dict = {}              # email -> bonus tokens (admin-granted, added to monthly cap)
 WINDOW_4H = 4 * 3600
 WINDOW_7D = 7 * 86400
 WINDOW_30D = 30 * 86400
@@ -281,6 +284,22 @@ def save_usage():
     ensure_data_dir()
     with open(USAGE_PATH, "w") as f:
         json.dump(usage_log, f)
+
+def load_credits():
+    global credits
+    try:
+        with open(CREDITS_PATH) as f:
+            credits = json.load(f)
+    except FileNotFoundError:
+        credits = {}
+
+def save_credits():
+    ensure_data_dir()
+    with open(CREDITS_PATH, "w") as f:
+        json.dump(credits, f, indent=2)
+
+def get_user_credits(email: str) -> int:
+    return int(credits.get((email or "").strip().lower(), 0) or 0)
 
 def record_usage(email: str, tokens: int):
     if not email:
@@ -325,12 +344,16 @@ def get_user_limits(email: str) -> dict:
         if pkg:
             pkg_name = pkg.get("name", tier)
     d = DEFAULT_TIER_LIMITS.get(tier, DEFAULT_TIER_LIMITS["free"])
+    base_token_month = int((pkg or {}).get("token_limit_month", d["token_month"]) or 0)
+    extra = get_user_credits(email)
     return {
         "tier": tier,
         "package": pkg_name,
         "msg_4h": int((pkg or {}).get("msg_limit_4h", d["msg_4h"]) or 0),
         "msg_7d": int((pkg or {}).get("msg_limit_7d", d["msg_7d"]) or 0),
-        "token_month": int((pkg or {}).get("token_limit_month", d["token_month"]) or 0),
+        "token_month": base_token_month + extra,
+        "base_token_month": base_token_month,
+        "extra_credits": extra,
     }
 
 def estimate_prompt_tokens(body: dict) -> int:
@@ -1709,6 +1732,7 @@ async def api_usage(request: Request, email: str = ""):
         "email": user_email,
         "tier": lim["tier"],
         "package": lim["package"],
+        "extra_credits": lim.get("extra_credits", 0),
         "limits": [
             {"key": "session", "label": "Current session", "unit": "messages",
              "window": "4 hours", "used": m4, "limit": lim["msg_4h"], "resets_in_seconds": r4},
@@ -2595,6 +2619,28 @@ async def admin_grant_subscription(user_email: str, request: Request):
     }
     save_subscriptions()
     return {"status": "granted", "email": user_email, "package": pkg["name"], "expires_at": expires_at}
+
+
+@app.get("/admin/credits")
+async def admin_list_credits(request: Request):
+    check_admin(request)
+    return {"credits": credits}
+
+
+@app.post("/admin/credits/{user_email}")
+async def admin_set_credits(user_email: str, request: Request):
+    """Set or add bonus monthly-token credits for a user. Body: {credits: N} to set, {add: N} to increment."""
+    check_admin(request)
+    email = user_email.strip().lower()
+    body = await request.json()
+    if "add" in body:
+        credits[email] = get_user_credits(email) + int(body.get("add", 0) or 0)
+    else:
+        credits[email] = int(body.get("credits", 0) or 0)
+    if credits[email] <= 0:
+        credits.pop(email, None)
+    save_credits()
+    return {"status": "ok", "email": email, "credits": credits.get(email, 0)}
 
 
 @app.delete("/admin/subscriptions/{user_email}")
