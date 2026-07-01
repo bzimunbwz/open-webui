@@ -1681,16 +1681,43 @@ async def chat_completions(request: Request):
 
                 _est_prompt = estimate_prompt_tokens(body)
                 async def stream_out(resp=http_resp, client=http_client, _email=user_email, _prompt=_est_prompt):
-                    collected = 0
+                    buf = ""
+                    out_chars = 0
+                    seen_total = 0
                     try:
                         async for chunk in resp.aiter_bytes(4096):
-                            collected += len(chunk)
-                            yield chunk
+                            yield chunk  # pass the raw stream through unchanged
+                            try:
+                                buf += chunk.decode("utf-8", "ignore")
+                                while "\n" in buf:
+                                    line, buf = buf.split("\n", 1)
+                                    line = line.strip()
+                                    if not line.startswith("data:"):
+                                        continue
+                                    payload = line[5:].strip()
+                                    if not payload or payload == "[DONE]":
+                                        continue
+                                    obj = json.loads(payload)
+                                    u = obj.get("usage")
+                                    if isinstance(u, dict) and u.get("total_tokens"):
+                                        seen_total = int(u["total_tokens"])
+                                    for ch in (obj.get("choices") or []):
+                                        delta = ch.get("delta") or {}
+                                        cc = delta.get("content")
+                                        if isinstance(cc, str):
+                                            out_chars += len(cc)
+                                        rc = delta.get("reasoning_content") or delta.get("reasoning")
+                                        if isinstance(rc, str):
+                                            out_chars += len(rc)
+                            except Exception:
+                                pass
                     finally:
                         await resp.aclose()
                         await client.aclose()
                         try:
-                            record_usage(_email, _prompt + max(1, collected // 6))
+                            # Prefer the provider's real token count; otherwise estimate prompt + actual output text
+                            tok = seen_total if seen_total > 0 else (_prompt + max(1, out_chars // 4))
+                            record_usage(_email, tok)
                         except Exception:
                             pass
 
@@ -1705,7 +1732,15 @@ async def chat_completions(request: Request):
                 data = result["data"]
                 data["model"] = requested_model
                 try:
-                    _tok = int((data.get("usage") or {}).get("total_tokens", 0)) or estimate_prompt_tokens(body)
+                    _u = data.get("usage") or {}
+                    _tok = int(_u.get("total_tokens", 0) or 0)
+                    if _tok <= 0:
+                        _out = 0
+                        for _ch in (data.get("choices") or []):
+                            _m = _ch.get("message") or {}
+                            if isinstance(_m.get("content"), str):
+                                _out += len(_m["content"])
+                        _tok = estimate_prompt_tokens(body) + max(1, _out // 4)
                     record_usage(user_email, _tok)
                 except Exception:
                     pass
