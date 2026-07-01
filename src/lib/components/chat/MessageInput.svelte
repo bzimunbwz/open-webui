@@ -68,6 +68,7 @@
 	import { getSuggestionRenderer } from '../common/RichTextInput/suggestions';
 
 	import InputMenu from './MessageInput/InputMenu.svelte';
+	import UsageWarning from './MessageInput/UsageWarning.svelte';
 	import VoiceRecording from './MessageInput/VoiceRecording.svelte';
 
 	import ToolServersModal from './ToolServersModal.svelte';
@@ -1292,6 +1293,8 @@
 								{/each}
 							</div>
 						{/if}
+
+						<UsageWarning />
 
 						<div
 							id="message-input-container"
