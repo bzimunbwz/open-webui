@@ -29,7 +29,7 @@ import asyncio
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gateway")
@@ -62,6 +62,7 @@ PROVIDER_MODEL_TIERS_PATH = os.path.join(DATA_DIR, "provider_model_tiers.json")
 DELETED_MODELS_PATH = os.path.join(DATA_DIR, "deleted_models.json")
 USAGE_PATH = os.path.join(DATA_DIR, "usage.json")
 CREDITS_PATH = os.path.join(DATA_DIR, "credits.json")
+ARTIFACTS_PATH = os.path.join(DATA_DIR, "shared_artifacts.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
 
 # Runtime state
@@ -109,6 +110,7 @@ def load_all():
     load_deleted_models()
     load_usage()
     load_credits()
+    load_artifacts()
 
 
 def load_providers():
@@ -262,6 +264,7 @@ def save_packages():
 # ── Usage tracking & per-plan limits (4h/7d messages + monthly tokens) ───────
 usage_log: dict = {}            # email -> list[[ts, tokens]]  (one entry per request)
 credits: dict = {}              # email -> bonus tokens (admin-granted, added to monthly cap)
+shared_artifacts: dict = {}     # id -> {content, type, created}
 WINDOW_4H = 4 * 3600
 WINDOW_7D = 7 * 86400
 WINDOW_30D = 30 * 86400
@@ -297,6 +300,19 @@ def save_credits():
     ensure_data_dir()
     with open(CREDITS_PATH, "w") as f:
         json.dump(credits, f, indent=2)
+
+def load_artifacts():
+    global shared_artifacts
+    try:
+        with open(ARTIFACTS_PATH) as f:
+            shared_artifacts = json.load(f)
+    except FileNotFoundError:
+        shared_artifacts = {}
+
+def save_artifacts():
+    ensure_data_dir()
+    with open(ARTIFACTS_PATH, "w") as f:
+        json.dump(shared_artifacts, f)
 
 def get_user_credits(email: str) -> int:
     return int(credits.get((email or "").strip().lower(), 0) or 0)
@@ -1777,6 +1793,44 @@ async def api_usage(request: Request, email: str = ""):
              "window": "30 days", "used": t30, "limit": lim["token_month"], "resets_in_seconds": r30},
         ],
     }
+
+
+@app.post("/api/artifacts/share")
+async def share_artifact(request: Request):
+    """Store a preview artifact (HTML/SVG) and return a public share id."""
+    body = await request.json()
+    content = body.get("content", "")
+    ctype = (body.get("type") or "html").lower()
+    if not content or len(content) > 5_000_000:
+        raise HTTPException(status_code=400, detail="Invalid or too large content")
+    sid = uuid.uuid4().hex[:12]
+    shared_artifacts[sid] = {
+        "content": content,
+        "type": "svg" if ctype == "svg" else "html",
+        "created": int(time.time()),
+        "email": get_user_email(request),
+    }
+    try:
+        save_artifacts()
+    except Exception as e:
+        logger.warning(f"save_artifacts failed: {e}")
+    return {"id": sid, "path": f"/s/{sid}"}
+
+
+@app.get("/s/{sid}")
+async def view_shared_artifact(sid: str):
+    """Render a shared artifact as a standalone public page."""
+    art = shared_artifacts.get(sid)
+    if not art:
+        return HTMLResponse("<!doctype html><html><body style='font-family:sans-serif;padding:2rem'>This shared preview was not found or has expired.</body></html>", status_code=404)
+    content = art.get("content", "")
+    if art.get("type") == "svg":
+        html = ("<!doctype html><html><head><meta charset='utf-8'>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                "<style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}</style>"
+                f"</head><body>{content}</body></html>")
+        return HTMLResponse(html)
+    return HTMLResponse(content)
 
 
 @app.get("/api/packages")
