@@ -1820,9 +1820,27 @@ async def share_artifact(request: Request):
     return {"id": sid, "path": f"/s/{sid}", "url": f"{base}/s/{sid}"}
 
 
+ARTIFACT_BADGE = (
+    '<div style="position:fixed;bottom:12px;right:12px;z-index:2147483647;'
+    'font-family:system-ui,-apple-system,sans-serif;pointer-events:auto">'
+    '<a href="https://claudesk.pro" target="_blank" rel="noopener" '
+    'style="display:inline-flex;align-items:center;gap:6px;background:#1a1a1a;color:#fff;'
+    'text-decoration:none;font-size:12px;font-weight:600;padding:6px 12px;border-radius:9999px;'
+    'box-shadow:0 2px 10px rgba(0,0,0,.25);line-height:1">Made with Claudesk</a></div>'
+)
+
+
+def _inject_badge(html: str) -> str:
+    low = html.lower()
+    idx = low.rfind("</body>")
+    if idx != -1:
+        return html[:idx] + ARTIFACT_BADGE + html[idx:]
+    return html + ARTIFACT_BADGE
+
+
 @app.get("/s/{sid}")
 async def view_shared_artifact(sid: str):
-    """Render a shared artifact as a standalone public page."""
+    """Render a shared artifact as a standalone public page (with a Made with Claudesk badge)."""
     art = shared_artifacts.get(sid)
     if not art:
         return HTMLResponse("<!doctype html><html><body style='font-family:sans-serif;padding:2rem'>This shared preview was not found or has expired.</body></html>", status_code=404)
@@ -1832,8 +1850,8 @@ async def view_shared_artifact(sid: str):
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                 "<style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}</style>"
                 f"</head><body>{content}</body></html>")
-        return HTMLResponse(html)
-    return HTMLResponse(content)
+        return HTMLResponse(_inject_badge(html))
+    return HTMLResponse(_inject_badge(content))
 
 
 @app.get("/api/packages")
