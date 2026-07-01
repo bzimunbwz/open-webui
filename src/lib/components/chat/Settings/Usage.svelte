@@ -7,6 +7,7 @@
 	const GW = 'https://webapp-2nd-service-production.up.railway.app';
 
 	let loading = true;
+	let refreshing = false;
 	let error = '';
 	let data: any = null;
 
@@ -20,9 +21,12 @@
 	const pct = (used: number, limit: number) =>
 		limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
 
-	onMount(async () => {
+	async function load() {
+		refreshing = true;
+		error = '';
 		try {
-			const res = await fetch(`${GW}/api/usage`, {
+			// cache-buster so limits/resets always reflect the latest values
+			const res = await fetch(`${GW}/api/usage?_=${Date.now()}`, {
 				headers: { 'X-User-Email': $user?.email || '' }
 			});
 			data = await res.json();
@@ -30,18 +34,31 @@
 			error = 'Could not load usage right now.';
 		}
 		loading = false;
-	});
+		refreshing = false;
+	}
+
+	onMount(load);
 </script>
 
 <div class="flex flex-col h-full text-sm" id="tab-usage">
-	<div class="flex items-center gap-2 mb-1">
-		<div class="text-lg font-medium text-gray-900 dark:text-white">{$i18n.t('Usage')}</div>
-		{#if data?.package}
-			<span
-				class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#d4a574]/20 text-[#d4a574] uppercase tracking-wide"
-				>{data.package}</span
-			>
-		{/if}
+	<div class="flex items-center justify-between gap-2 mb-1">
+		<div class="flex items-center gap-2 min-w-0">
+			<div class="text-lg font-medium text-gray-900 dark:text-white">{$i18n.t('Usage')}</div>
+			{#if data?.package}
+				<span
+					class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#d4a574]/20 text-[#d4a574] uppercase tracking-wide"
+					>{data.package}</span
+				>
+			{/if}
+		</div>
+		<button
+			on:click={load}
+			disabled={refreshing}
+			class="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-[#ffffff1a] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 transition disabled:opacity-50"
+		>
+			<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-3.5 {refreshing ? 'animate-spin' : ''}"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+			{refreshing ? $i18n.t('Refreshing...') : $i18n.t('Refresh')}
+		</button>
 	</div>
 	<div class="text-xs text-gray-500 dark:text-gray-400 mb-5">
 		{$i18n.t('Your plan limits and how much you have used.')}
