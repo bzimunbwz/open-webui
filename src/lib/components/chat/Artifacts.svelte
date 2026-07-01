@@ -91,6 +91,29 @@
 		URL.revokeObjectURL(url);
 	};
 
+	const GW = 'https://webapp-2nd-service-production.up.railway.app';
+	let sharing = false;
+	const shareArtifact = async () => {
+		const item = contents[selectedContentIdx];
+		if (!item?.content) return;
+		sharing = true;
+		try {
+			const res = await fetch(`${GW}/api/artifacts/share`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ content: item.content, type: item.type === 'svg' ? 'svg' : 'html' })
+			});
+			if (!res.ok) throw new Error(await res.text());
+			const data = await res.json();
+			const link = `${GW}${data.path}`;
+			await navigator.clipboard.writeText(link);
+			toast.success($i18n.t('Share link copied to clipboard'));
+		} catch (e) {
+			toast.error($i18n.t('Could not create share link'));
+		}
+		sharing = false;
+	};
+
 	onMount(() => {
 		const unsubscribeArtifactCode = artifactCode.subscribe((value) => {
 			if (contents) {
@@ -199,6 +222,16 @@
 							on:click={downloadArtifact}
 						>
 							<Download className="size-3.5" />
+						</button>
+					</Tooltip>
+
+					<Tooltip content={sharing ? $i18n.t('Creating link...') : $i18n.t('Share link')}>
+						<button
+							class="flex items-center justify-center size-7 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-gray-700 dark:text-gray-200 transition disabled:opacity-50"
+							on:click={shareArtifact}
+							disabled={sharing}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="size-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" /></svg>
 						</button>
 					</Tooltip>
 
