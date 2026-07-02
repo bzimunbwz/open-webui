@@ -1075,9 +1075,12 @@ async def startup():
     seed_cloudflare_models()
     seed_bynara()
     add_bynara_fallback()
+    seed_clod()
+    add_clod_fallback()
     # Auto-sync models for all providers that have a base_url and API keys
     await auto_sync_provider_models()
     mark_bynara_models_free()
+    mark_clod_models_free()
     # Populate Provider-tab catalogs (model lists + FREE/PAID badges) last so the
     # official tier classification is authoritative over live-sync results.
     seed_provider_catalogs()
@@ -1426,6 +1429,56 @@ def seed_provider_catalogs():
         f"freemodel={len(CATALOGS['freemodel'])}, "
         f"llm7={len(CATALOGS['llm7'])}, zai={len(CATALOGS['zai'])} models"
     )
+
+
+def seed_clod():
+    """Ensure the CLoD (clod.io) OpenAI-compatible router provider exists. Key from CLOD_API_KEY env."""
+    global providers
+    key = os.getenv("CLOD_API_KEY", "").strip()
+    if "clod" not in providers:
+        providers["clod"] = {
+            "name": "CLoD",
+            "base_url": "https://api.clod.io/v1",
+            "api_keys": [key] if key else [],
+        }
+        provider_status["clod"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        key_index["clod"] = 0
+        save_providers()
+        logger.info("Seeded CLoD provider")
+    elif key and not providers["clod"].get("api_keys"):
+        providers["clod"]["api_keys"] = [key]
+        save_providers()
+        logger.info("Added CLoD API key from env")
+
+
+def mark_clod_models_free():
+    ids = provider_models_cache.get("clod", [])
+    if not ids:
+        return
+    tiers = provider_model_tiers.get("clod", {})
+    changed = False
+    for mid in ids:
+        if tiers.get(mid) != "free":
+            tiers[mid] = "free"
+            changed = True
+    provider_model_tiers["clod"] = tiers
+    if changed:
+        save_provider_model_tiers()
+    logger.info(f"Marked {len(ids)} CLoD models as free")
+
+
+def add_clod_fallback():
+    """Append CLoD as a last-resort (wildcard) fallback backend on every facade model."""
+    changed = 0
+    for mid, m in facade_models.items():
+        backends = m.get("backends", [])
+        if not any(b.get("provider") == "clod" for b in backends):
+            backends.append({"provider": "clod", "model": "*"})
+            m["backends"] = backends
+            changed += 1
+    if changed:
+        save_models()
+        logger.info(f"Added CLoD fallback backend to {changed} facade models")
 
 
 def seed_bynara():
