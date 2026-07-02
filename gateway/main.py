@@ -1432,23 +1432,29 @@ def seed_provider_catalogs():
 
 
 def seed_clod():
-    """Ensure the CLoD (clod.io) OpenAI-compatible router provider exists. Key from CLOD_API_KEY env."""
+    """Ensure the CLoD (clod.io) OpenAI-compatible router provider exists (all models free)."""
     global providers
     key = os.getenv("CLOD_API_KEY", "").strip()
-    if "clod" not in providers:
+    prov = providers.get("clod")
+    if prov is None:
         providers["clod"] = {
             "name": "CLoD",
             "base_url": "https://api.clod.io/v1",
             "api_keys": [key] if key else [],
+            "default_tier": "free",
         }
         provider_status["clod"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
         key_index["clod"] = 0
         save_providers()
         logger.info("Seeded CLoD provider")
-    elif key and not providers["clod"].get("api_keys"):
-        providers["clod"]["api_keys"] = [key]
-        save_providers()
-        logger.info("Added CLoD API key from env")
+    else:
+        changed = False
+        if key and not prov.get("api_keys"):
+            prov["api_keys"] = [key]; changed = True
+        if prov.get("default_tier") != "free":
+            prov["default_tier"] = "free"; changed = True
+        if changed:
+            save_providers()
 
 
 def mark_clod_models_free():
@@ -1482,24 +1488,29 @@ def add_clod_fallback():
 
 
 def seed_bynara():
-    """Ensure the Bynara free-model router provider exists. Key comes from the
-    BYNARA_API_KEY env var (or is added later via the admin Providers UI)."""
+    """Ensure the Bynara free-model router provider exists (all models free)."""
     global providers
     key = os.getenv("BYNARA_API_KEY", "").strip()
-    if "bynara" not in providers:
+    prov = providers.get("bynara")
+    if prov is None:
         providers["bynara"] = {
             "name": "Bynara",
             "base_url": "https://router.bynara.id/v1",
             "api_keys": [key] if key else [],
+            "default_tier": "free",
         }
         provider_status["bynara"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
         key_index["bynara"] = 0
         save_providers()
         logger.info("Seeded Bynara provider")
-    elif key and not providers["bynara"].get("api_keys"):
-        providers["bynara"]["api_keys"] = [key]
-        save_providers()
-        logger.info("Added Bynara API key from env")
+    else:
+        changed = False
+        if key and not prov.get("api_keys"):
+            prov["api_keys"] = [key]; changed = True
+        if prov.get("default_tier") != "free":
+            prov["default_tier"] = "free"; changed = True
+        if changed:
+            save_providers()
 
 
 def add_bynara_fallback():
@@ -2351,10 +2362,13 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
 
             # Inject tier info into each model from provider_model_tiers
             tiers = provider_model_tiers.get(provider_id, {})
-            # Also check LLM7-style tier field from API response
+            _default_tier = prov.get("default_tier")
             for m in data.get("data", []):
                 mid = m.get("id", "")
-                if mid in tiers:
+                if _default_tier:
+                    m["tier"] = _default_tier
+                    tiers[mid] = _default_tier
+                elif mid in tiers:
                     m["tier"] = tiers[mid]
                 elif m.get("tier"):
                     # Map LLM7 tier names: turbo=free, pro=paid
@@ -2363,7 +2377,6 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
                         m["tier"] = "free"
                     elif api_tier == "pro":
                         m["tier"] = "paid"
-                    # Save discovered tiers
                     tiers[mid] = m["tier"]
             if tiers:
                 provider_model_tiers[provider_id] = tiers
@@ -2375,8 +2388,9 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
         cached = provider_models_cache.get(provider_id, [])
         if cached:
             tiers = provider_model_tiers.get(provider_id, {})
+            _dt = prov.get("default_tier")
             return {"object": "list", "data": [
-                {"id": mid, "object": "model", "created": 1700000000, "owned_by": provider_id, "tier": tiers.get(mid)}
+                {"id": mid, "object": "model", "created": 1700000000, "owned_by": provider_id, "tier": (_dt or tiers.get(mid))}
                 for mid in cached
             ]}
         raise HTTPException(status_code=502, detail=f"Failed to fetch models from {base_url}: {str(e)}")
