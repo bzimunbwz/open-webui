@@ -1074,6 +1074,7 @@ async def startup():
     seed_llm7_models()
     seed_cloudflare_models()
     seed_bynara()
+    add_bynara_fallback()
     # Auto-sync models for all providers that have a base_url and API keys
     await auto_sync_provider_models()
     mark_bynara_models_free()
@@ -1446,6 +1447,20 @@ def seed_bynara():
         providers["bynara"]["api_keys"] = [key]
         save_providers()
         logger.info("Added Bynara API key from env")
+
+
+def add_bynara_fallback():
+    """Append Bynara as a last-resort (wildcard) fallback backend on every facade model."""
+    changed = 0
+    for mid, m in facade_models.items():
+        backends = m.get("backends", [])
+        if not any(b.get("provider") == "bynara" for b in backends):
+            backends.append({"provider": "bynara", "model": "*"})
+            m["backends"] = backends
+            changed += 1
+    if changed:
+        save_models()
+        logger.info(f"Added Bynara fallback backend to {changed} facade models")
 
 
 def mark_bynara_models_free():
