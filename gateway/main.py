@@ -1073,8 +1073,10 @@ async def startup():
     seed_zai_models()
     seed_llm7_models()
     seed_cloudflare_models()
+    seed_bynara()
     # Auto-sync models for all providers that have a base_url and API keys
     await auto_sync_provider_models()
+    mark_bynara_models_free()
     # Populate Provider-tab catalogs (model lists + FREE/PAID badges) last so the
     # official tier classification is authoritative over live-sync results.
     seed_provider_catalogs()
@@ -1423,6 +1425,44 @@ def seed_provider_catalogs():
         f"freemodel={len(CATALOGS['freemodel'])}, "
         f"llm7={len(CATALOGS['llm7'])}, zai={len(CATALOGS['zai'])} models"
     )
+
+
+def seed_bynara():
+    """Ensure the Bynara free-model router provider exists. Key comes from the
+    BYNARA_API_KEY env var (or is added later via the admin Providers UI)."""
+    global providers
+    key = os.getenv("BYNARA_API_KEY", "").strip()
+    if "bynara" not in providers:
+        providers["bynara"] = {
+            "name": "Bynara",
+            "base_url": "https://router.bynara.id/v1",
+            "api_keys": [key] if key else [],
+        }
+        provider_status["bynara"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        key_index["bynara"] = 0
+        save_providers()
+        logger.info("Seeded Bynara provider")
+    elif key and not providers["bynara"].get("api_keys"):
+        providers["bynara"]["api_keys"] = [key]
+        save_providers()
+        logger.info("Added Bynara API key from env")
+
+
+def mark_bynara_models_free():
+    """Mark every synced Bynara model as free (it's a free-model router)."""
+    ids = provider_models_cache.get("bynara", [])
+    if not ids:
+        return
+    tiers = provider_model_tiers.get("bynara", {})
+    changed = False
+    for mid in ids:
+        if tiers.get(mid) != "free":
+            tiers[mid] = "free"
+            changed = True
+    provider_model_tiers["bynara"] = tiers
+    if changed:
+        save_provider_model_tiers()
+    logger.info(f"Marked {len(ids)} Bynara models as free")
 
 
 async def auto_sync_provider_models():
