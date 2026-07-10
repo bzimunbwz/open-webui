@@ -64,6 +64,7 @@ USAGE_PATH = os.path.join(DATA_DIR, "usage.json")
 CREDITS_PATH = os.path.join(DATA_DIR, "credits.json")
 ARTIFACTS_PATH = os.path.join(DATA_DIR, "shared_artifacts.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
+DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "8192") or 8192)  # floor for output when client omits max_tokens
 
 # Runtime state
 providers: dict = {}
@@ -1709,6 +1710,15 @@ async def chat_completions(request: Request):
     requested_model = body.get("model", "")
     stream = body.get("stream", False)
     user_email = get_user_email(request)
+
+    # Prevent upstream free providers from truncating long code/answers:
+    # if the client didn't set max_tokens, request a generous output ceiling.
+    try:
+        _mt = body.get("max_tokens")
+        if _mt is None or int(_mt) <= 0:
+            body["max_tokens"] = DEFAULT_MAX_TOKENS
+    except Exception:
+        body["max_tokens"] = DEFAULT_MAX_TOKENS
 
     facade = facade_models.get(requested_model)
     if not facade:
