@@ -1,10 +1,11 @@
 <script lang="ts">
+	import { getGatewayUrl } from '$lib/gateway';
 	import { onMount, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { user } from '$lib/stores';
 
 	const i18n = getContext('i18n');
-	const GW = 'https://webapp-2nd-service-production.up.railway.app';
+	const GW = getGatewayUrl();
 
 	let packages: any[] = [];
 	let subscription: any = null;

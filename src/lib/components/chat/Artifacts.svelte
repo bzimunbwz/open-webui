@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getGatewayUrl } from '$lib/gateway';
 	import { toast } from 'svelte-sonner';
 	import { onMount, getContext, createEventDispatcher } from 'svelte';
 	const i18n = getContext('i18n');
@@ -91,7 +92,7 @@
 		URL.revokeObjectURL(url);
 	};
 
-	const GW = 'https://webapp-2nd-service-production.up.railway.app';
+	const GW = getGatewayUrl();
 	let sharing = false;
 	const shareArtifact = async () => {
 		const item = contents[selectedContentIdx];

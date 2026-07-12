@@ -1,6 +1,9 @@
 # ClaudeSK — DigitalOcean deployment (Open WebUI + facade gateway + Caddy HTTPS)
-# Usage on an Ubuntu droplet (4 GB+ RAM recommended):
+#
 #   docker compose -f docker-compose.claudesk.yml up -d --build
+#
+# Droplet: Ubuntu 24.04, 4 GB RAM / 2 vCPU / 80 GB minimum.
+# All secrets live in .env (never committed). See .env.example.
 services:
   open-webui:
     build:
@@ -15,16 +18,39 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      WEBUI_NAME: ${WEBUI_NAME:-ClaudeSK}
-      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
-      ENABLE_FORWARD_USER_INFO_HEADERS: "true"
+      # ── Branding ───────────────────────────────────────────────
+      WEBUI_NAME: ${WEBUI_NAME:-Claudesk}
+      WEBUI_URL: ${WEBUI_URL:-https://claudesk.pro}
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?set WEBUI_SECRET_KEY in .env}
+
+      # ── Talk to the gateway over the internal docker network ───
+      # This skips the public internet entirely: faster + no egress cost.
+      OPENAI_API_BASE_URL: http://gateway:3000/v1
+      OPENAI_API_KEY: sk-unused
+      ARTIFACT_GATEWAY_URL: http://gateway:3000
+
+      # ── Core behaviour ─────────────────────────────────────────
       ENABLE_PERSISTENT_CONFIG: "true"
+      ENABLE_FORWARD_USER_INFO_HEADERS: "true"
       ENABLE_OLLAMA_API: "false"
-      RAG_EMBEDDING_ENGINE: ${RAG_EMBEDDING_ENGINE:-}
+      BYPASS_MODEL_ACCESS_CONTROL: "true"
+      ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
+      DEFAULT_USER_ROLE: ${DEFAULT_USER_ROLE:-user}
+
+      # ── Keep the disk from filling up ──────────────────────────
+      # No local model downloads; no web-search embeddings written to Chroma.
+      RAG_EMBEDDING_ENGINE: ${RAG_EMBEDDING_ENGINE:-openai}
+      AUDIO_STT_ENGINE: ${AUDIO_STT_ENGINE:-openai}
+      BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL: "true"
+      ENABLE_WEB_SEARCH: ${ENABLE_WEB_SEARCH:-true}
+      WEB_SEARCH_RESULT_COUNT: ${WEB_SEARCH_RESULT_COUNT:-5}
+      CHUNK_SIZE: ${CHUNK_SIZE:-1000}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-100}
     volumes:
       - openwebui-data:/app/backend/data
     depends_on:
-      - gateway
+      gateway:
+        condition: service_healthy
     expose:
       - "8080"
 
@@ -39,7 +65,15 @@ services:
     environment:
       PORT: "3000"
       GATEWAY_DATA_DIR: /app/data
-      GATEWAY_ADMIN_KEY: ${GATEWAY_ADMIN_KEY}
+      GATEWAY_ADMIN_KEY: ${GATEWAY_ADMIN_KEY:?set GATEWAY_ADMIN_KEY in .env}
+
+      # Output ceiling when the client sends no max_tokens (stops long
+      # answers being truncated mid-code by a provider's small default).
+      DEFAULT_MAX_TOKENS: ${DEFAULT_MAX_TOKENS:-16384}
+
+      # Provider keys — all optional, set only the ones you use.
+      BYNARA_API_KEY: ${BYNARA_API_KEY:-}
+      CLOD_API_KEY: ${CLOD_API_KEY:-}
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
       CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:-}
       BINANCE_PROXY: ${BINANCE_PROXY:-}
@@ -47,6 +81,12 @@ services:
       - gateway-data:/app/data
     expose:
       - "3000"
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--fail", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   caddy:
     image: caddy:2-alpine

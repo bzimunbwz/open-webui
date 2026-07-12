@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { getGatewayUrl } from '$lib/gateway';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
 
-	const GW = 'https://webapp-2nd-service-production.up.railway.app';
+	const GW = getGatewayUrl();
 	const KEY = 'sk-gateway-admin';
 
 	let packages: any[] = [];

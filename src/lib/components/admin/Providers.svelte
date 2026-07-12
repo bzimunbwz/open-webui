@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getGatewayUrl } from '$lib/gateway';
 	import { onMount, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { slide } from 'svelte/transition';
@@ -22,11 +23,10 @@
 		}
 		return url;
 	}
-	const DEFAULT_GATEWAY_URL = 'https://webapp-2nd-service-production.up.railway.app';
+	const DEFAULT_GATEWAY_URL = getGatewayUrl();
 	const DEFAULT_GATEWAY_KEY = 'sk-gateway-admin';
 	let savedUrl = normalizeUrl(lsGet('gateway_url'));
-	// Use saved URL only if it contains 'webapp-2nd-service', otherwise use default
-	let GATEWAY_URL = (savedUrl && savedUrl.includes('webapp-2nd-service')) ? savedUrl : DEFAULT_GATEWAY_URL;
+	let GATEWAY_URL = savedUrl || DEFAULT_GATEWAY_URL;
 	let GATEWAY_ADMIN_KEY = lsGet('gateway_admin_key') || DEFAULT_GATEWAY_KEY;
 	let showGatewayConfig = false;
 	let connected = false;
@@ -553,7 +553,7 @@
 			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
 				<div>
 					<label class="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Gateway URL</label>
-					<input bind:value={GATEWAY_URL} placeholder="https://your-gateway.up.railway.app"
+					<input bind:value={GATEWAY_URL} placeholder="https://gateway.claudesk.pro"
 						class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm" />
 				</div>
 				<div>

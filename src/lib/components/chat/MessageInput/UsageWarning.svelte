@@ -1,10 +1,11 @@
 <script lang="ts">
+	import { getGatewayUrl } from '$lib/gateway';
 	import { onMount, onDestroy, getContext } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { user } from '$lib/stores';
 
 	const i18n = getContext('i18n');
-	const GW = 'https://webapp-2nd-service-production.up.railway.app';
+	const GW = getGatewayUrl();
 
 	let warn: any = null; // worst limit at >=90%
 	let dismissedKey = '';

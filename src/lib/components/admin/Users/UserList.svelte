@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getGatewayUrl } from '$lib/gateway';
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { WEBUI_NAME, config, user, showSidebar } from '$lib/stores';
 	import { goto } from '$app/navigation';
@@ -57,7 +58,7 @@
 	let showEditUserModal = false;
 	let showUserPreviewModal = false;
 
-	const GW_CREDITS = 'https://webapp-2nd-service-production.up.railway.app';
+	const GW_CREDITS = getGatewayUrl();
 	const gwCreditsKey = () => localStorage.getItem('gateway_admin_key') || 'sk-gateway-admin';
 	const setCreditsHandler = async (u) => {
 		const input = window.prompt(
