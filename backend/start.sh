@@ -16,6 +16,51 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 cd "$SCRIPT_DIR" || exit 1
 
+# ── Data volume report + optional emergency cleanup ──────────────────────────
+# The data volume fills up over time (ChromaDB vector store, downloaded model
+# cache, user uploads). A full volume stops the app from booting, and on hosts
+# with no shell access there is otherwise no way to see or fix it. So: always
+# report usage into the logs, and purge only when explicitly asked to.
+
+DATA_PATH="${DATA_DIR:-${SCRIPT_DIR}/data}"
+
+if [[ -d "$DATA_PATH" ]]; then
+  echo "── Data volume: ${DATA_PATH}"
+  df -h "$DATA_PATH" 2>/dev/null || true
+  echo "── Largest entries:"
+  du -sh "${DATA_PATH}"/* 2>/dev/null | sort -rh | head -20 || true
+fi
+
+# CLEANUP_ON_BOOT — comma-separated targets to delete before starting:
+#   cache      downloaded models, tiktoken   (regenerated automatically — safe)
+#   vector_db  ChromaDB embeddings           (Knowledge/docs need re-indexing)
+#   uploads    user-uploaded files           (chat text kept, attachments break)
+#   all        all three
+# Set it, deploy once to reclaim the space, then REMOVE it again — otherwise
+# every future restart wipes these directories.
+if [[ -n "${CLEANUP_ON_BOOT:-}" && -d "$DATA_PATH" ]]; then
+  echo "── CLEANUP_ON_BOOT='${CLEANUP_ON_BOOT}' — purging before start"
+  IFS=',' read -ra _targets <<< "${CLEANUP_ON_BOOT}"
+  for _t in "${_targets[@]}"; do
+    _t="$(echo "$_t" | tr -d '[:space:]')"
+    case "$_t" in
+      all)
+        rm -rf "${DATA_PATH:?}/vector_db" "${DATA_PATH:?}/cache" "${DATA_PATH:?}/uploads"
+        echo "   purged vector_db, cache, uploads"
+        ;;
+      vector_db|cache|uploads)
+        rm -rf "${DATA_PATH:?}/${_t}"
+        echo "   purged ${_t}"
+        ;;
+      "") ;;
+      *) echo "   unknown target '${_t}' — skipped" ;;
+    esac
+  done
+  mkdir -p "${DATA_PATH}/cache" "${DATA_PATH}/uploads"
+  echo "── After cleanup:"
+  df -h "$DATA_PATH" 2>/dev/null || true
+fi
+
 # ── Playwright browser installation (if configured) ──────────────────────────
 
 if [[ "${WEB_LOADER_ENGINE,,}" == "playwright" ]]; then
