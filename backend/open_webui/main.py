@@ -632,6 +632,81 @@ https://github.com/open-webui/open-webui
         print(f'Open WebUI v{VERSION} - building the best AI user interface.\nhttps://github.com/open-webui/open-webui')
 
 
+# ── Scheduled document cleanup ───────────────────────────────────────────────
+# Uploaded documents (and the embeddings derived from them) accumulate on the
+# data volume forever. For a chat product where attachments are transient, it is
+# safer to sweep them on a timer than to let the disk fill and take the app down.
+#
+#   ENABLE_DOCUMENT_CLEANUP=true          turn it on
+#   DOCUMENT_CLEANUP_INTERVAL_HOURS=24    how often to sweep (default 24)
+#
+# This deletes ALL uploaded files, their vector collections, and every knowledge
+# base. Chats keep their text; their attachments become unavailable.
+ENABLE_DOCUMENT_CLEANUP = os.environ.get('ENABLE_DOCUMENT_CLEANUP', 'False').lower() == 'true'
+try:
+    DOCUMENT_CLEANUP_INTERVAL_HOURS = float(
+        os.environ.get('DOCUMENT_CLEANUP_INTERVAL_HOURS', '24') or 24
+    )
+except ValueError:
+    DOCUMENT_CLEANUP_INTERVAL_HOURS = 24.0
+
+
+async def run_document_cleanup() -> dict:
+    """Purge every uploaded document: files on disk, their DB rows, the vector
+    store and all knowledge bases. Returns what it reclaimed."""
+    from open_webui.retrieval.vector.async_client import ASYNC_VECTOR_DB_CLIENT
+    from open_webui.models.files import Files
+    from open_webui.models.knowledge import Knowledges
+
+    removed_files = 0
+    freed_bytes = 0
+
+    # Embeddings and knowledge bases
+    try:
+        await ASYNC_VECTOR_DB_CLIENT.reset()
+    except Exception as e:
+        log.warning(f'document cleanup: vector store reset failed: {e}')
+    try:
+        await Knowledges.delete_all_knowledge()
+    except Exception as e:
+        log.warning(f'document cleanup: knowledge purge failed: {e}')
+
+    # File rows (leaving these behind would give users broken file links)
+    try:
+        await Files.delete_all_files()
+    except Exception as e:
+        log.warning(f'document cleanup: file records purge failed: {e}')
+
+    # The files themselves
+    try:
+        if os.path.exists(UPLOAD_DIR):
+            for name in os.listdir(UPLOAD_DIR):
+                path = os.path.join(UPLOAD_DIR, name)
+                try:
+                    if os.path.isfile(path) or os.path.islink(path):
+                        if os.path.isfile(path):
+                            freed_bytes += os.path.getsize(path)
+                        os.unlink(path)
+                        removed_files += 1
+                    elif os.path.isdir(path):
+                        for root, _dirs, files in os.walk(path):
+                            for f in files:
+                                try:
+                                    freed_bytes += os.path.getsize(os.path.join(root, f))
+                                    removed_files += 1
+                                except OSError:
+                                    pass
+                        shutil.rmtree(path, ignore_errors=True)
+                except Exception as e:
+                    log.warning(f'document cleanup: could not remove {path}: {e}')
+    except Exception as e:
+        log.warning(f'document cleanup: upload sweep failed: {e}')
+
+    freed_mb = round(freed_bytes / (1024 * 1024), 2)
+    log.info(f'Document cleanup complete — removed {removed_files} file(s), freed ~{freed_mb} MB')
+    return {'removed_files': removed_files, 'freed_mb': freed_mb}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Store reference to main event loop for sync->async calls (e.g., embedding generation)
@@ -733,10 +808,34 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             log.warning(f'Failed to initialize terminal servers at startup: {e}')
 
+    # Kick off the periodic document sweep (opt-in via ENABLE_DOCUMENT_CLEANUP).
+    app.state.document_cleanup_task = None
+    if ENABLE_DOCUMENT_CLEANUP:
+
+        async def _document_cleanup_loop():
+            interval = max(0.1, DOCUMENT_CLEANUP_INTERVAL_HOURS) * 3600
+            while True:
+                try:
+                    await asyncio.sleep(interval)
+                    await run_document_cleanup()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    log.exception(f'Scheduled document cleanup failed: {e}')
+
+        app.state.document_cleanup_task = asyncio.create_task(_document_cleanup_loop())
+        log.info(
+            f'Scheduled document cleanup ENABLED — sweeping every '
+            f'{DOCUMENT_CLEANUP_INTERVAL_HOURS}h'
+        )
+
     # Mark application as ready to accept traffic from a startup perspective.
     app.state.startup_complete = True
 
     yield
+
+    if getattr(app.state, 'document_cleanup_task', None):
+        app.state.document_cleanup_task.cancel()
 
     # Shutdown: clean up shared resources
     from open_webui.utils.session_pool import close_session
@@ -2924,6 +3023,12 @@ async def async_db_ping() -> None:
 @app.get('/health')
 async def healthcheck():
     return {'status': True}
+
+
+@app.post('/api/v1/maintenance/cleanup-documents')
+async def cleanup_documents_now(user=Depends(get_admin_user)):
+    """Admin: run the document sweep immediately instead of waiting for the timer."""
+    return await run_document_cleanup()
 
 
 @app.get('/preview/{artifact_id}')
