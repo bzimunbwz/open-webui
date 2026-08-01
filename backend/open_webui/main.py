@@ -2353,6 +2353,8 @@ from open_webui.utils.anthropic import (
 
 @app.post('/api/message')
 @app.post('/api/v1/messages')  # Anthropic Messages API compatible endpoint
+@app.post('/v1/messages')  # Anthropic API compatibility (base URL = https://claudesk.pro)
+@app.post('/api/chat/completions/v1/messages')  # Clients that append /v1/messages to the chat-completions base URL
 async def generate_messages(
     request: Request,
     form_data: dict,
