@@ -1625,6 +1625,27 @@ async def get_models(request: Request, refresh: bool = False, user=Depends(get_v
     return {'data': models}
 
 
+@app.get('/v1/models')  # OpenAI API compatibility (base URL = https://claudesk.pro)
+@app.get('/api/chat/completions/v1/models')  # Clients that append /v1/models to the chat-completions base URL
+async def get_models_openai_format(request: Request, refresh: bool = False, user=Depends(get_verified_user)):
+    """OpenAI-compatible model list, so external clients (Claude Code CLI,
+    Copilot-style apps) can run model discovery against this gateway."""
+    response = await get_models(request, refresh=refresh, user=user)
+    return {
+        'object': 'list',
+        'data': [
+            {
+                'id': model.get('id'),
+                'object': 'model',
+                'created': int(model.get('created') or 0),
+                'owned_by': model.get('owned_by', 'claudesk'),
+            }
+            for model in response.get('data', [])
+            if model.get('id')
+        ],
+    }
+
+
 @app.get('/api/models/base')
 async def get_base_models(request: Request, user=Depends(get_admin_user)):
     models = await get_all_base_models(request, user=user)
@@ -1765,6 +1786,8 @@ async def embeddings(request: Request, form_data: dict, user=Depends(get_verifie
 
 @app.post('/api/chat/completions')
 @app.post('/api/v1/chat/completions')  # Experimental: Compatibility with OpenAI API
+@app.post('/v1/chat/completions')  # OpenAI API compatibility (base URL = https://claudesk.pro)
+@app.post('/api/chat/completions/v1/chat/completions')  # Clients that append /v1/chat/completions to the base URL
 async def chat_completion(
     request: Request,
     form_data: dict,
