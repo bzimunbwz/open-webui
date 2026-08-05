@@ -23,10 +23,11 @@
 
 	$: key = apiKey || 'YOUR_API_KEY';
 
-	let activeTab: 'claude-code' | 'openai' | 'codex' = 'claude-code';
+	let activeTab: 'claude-code' | 'claude-desktop' | 'openai' | 'codex' = 'claude-code';
 
 	const tabs = [
 		{ id: 'claude-code', label: 'Claude Code' },
+		{ id: 'claude-desktop', label: 'Claude Desktop' },
 		{ id: 'openai', label: 'OpenAI-Compatible' },
 		{ id: 'codex', label: 'Codex CLI' }
 	];
@@ -251,6 +252,56 @@ ANTHROPIC_AUTH_TOKEN=sk-claudesk</pre>
 						<li>{$i18n.t('Prefer a UI? Run')} <code class="font-mono">ccr ui</code> {$i18n.t('to add the provider, set the openai transformer, and the Default route, then')} <code class="font-mono">ccr code</code>.</li>
 						<li>{$i18n.t('"command not found": make sure your npm global folder (npm config get prefix) is on PATH, then reopen the terminal.')}</li>
 						<li>{$i18n.t('Use the exact model id shown in the selector above — a wrong id returns "Model not found".')}</li>
+					</ul>
+				</div>
+			</div>
+		{:else if activeTab === 'claude-desktop'}
+			<div class="space-y-4">
+				<p class="text-sm text-gray-600 dark:text-gray-400">
+					{$i18n.t('Use ClaudeSK models directly in the official Claude Desktop app — no router needed. Claude Desktop has a built-in third-party inference gateway option, hidden behind Developer Mode.')}
+				</p>
+
+				<ol class="space-y-4 text-sm text-gray-800 dark:text-gray-200 list-decimal pl-5">
+					<li>
+						<div class="font-medium mb-1.5">{$i18n.t('Enable Developer Mode')}</div>
+						<p class="text-xs text-gray-600 dark:text-gray-400">
+							{$i18n.t('Open the Claude menu in the top-left navbar, then go to Help → Troubleshooting → Enable Developer Mode.')}
+						</p>
+					</li>
+					<li>
+						<div class="font-medium mb-1.5">{$i18n.t('Open the gateway settings')}</div>
+						<p class="text-xs text-gray-600 dark:text-gray-400">
+							{$i18n.t('Open the Claude menu again → Developer → Configure third-party inference. Under Connection, choose Gateway.')}
+						</p>
+					</li>
+					<li>
+						<div class="font-medium mb-1.5">{$i18n.t('Enter the gateway credentials')}</div>
+						<div class="rounded-lg border border-gray-200 dark:border-[#ffffff1a] divide-y divide-gray-200 dark:divide-[#ffffff1a] text-sm">
+							<div class="flex justify-between gap-3 px-3 py-2"><span class="text-gray-500 dark:text-gray-400">{$i18n.t('Gateway base URL')}</span><code class="font-mono text-gray-800 dark:text-gray-200">{API_BASE}/chat/completions</code></div>
+							<div class="flex justify-between gap-3 px-3 py-2"><span class="text-gray-500 dark:text-gray-400">{$i18n.t('Gateway API key')}</span><code class="font-mono text-gray-800 dark:text-gray-200 truncate max-w-[60%]">{key}</code></div>
+							<div class="flex justify-between gap-3 px-3 py-2"><span class="text-gray-500 dark:text-gray-400">{$i18n.t('Gateway auth scheme')}</span><code class="font-mono text-gray-800 dark:text-gray-200">x-api-key</code></div>
+							<div class="flex justify-between gap-3 px-3 py-2"><span class="text-gray-500 dark:text-gray-400">{$i18n.t('Credential kind')}</span><code class="font-mono text-gray-800 dark:text-gray-200">Static API key</code></div>
+							<div class="flex justify-between gap-3 px-3 py-2"><span class="text-gray-500 dark:text-gray-400">{$i18n.t('Model discovery')}</span><code class="font-mono text-gray-800 dark:text-gray-200">{$i18n.t('Enabled')}</code></div>
+						</div>
+						<div class="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+							{$i18n.t('Leave Custom inference headers and Artifact preview iframe origin empty. Model discovery auto-populates the model picker from the gateway.')}
+						</div>
+					</li>
+					<li>
+						<div class="font-medium mb-1.5">{$i18n.t('Test and apply')}</div>
+						<p class="text-xs text-gray-600 dark:text-gray-400">
+							{$i18n.t('Click Test connection — you should see "Model discovery — found N models" and a successful inference probe. Then click Apply Changes and restart the app. Your ClaudeSK models now appear in the model picker of every chat.')}
+						</p>
+					</li>
+				</ol>
+
+				<div class="rounded-lg border border-gray-200 dark:border-[#ffffff1a] p-3.5">
+					<div class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5">{$i18n.t('Troubleshooting')}</div>
+					<ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1.5 list-disc pl-4">
+						<li>{$i18n.t('"Can\'t reach" / model discovery fails: double-check the base URL is exactly')} <code class="font-mono">{API_BASE}/chat/completions</code> {$i18n.t('with no trailing slash.')}</li>
+						<li>{$i18n.t('401 / Unauthorized: regenerate your API key above and make sure the auth scheme is set to x-api-key.')}</li>
+						<li>{$i18n.t('HTTP 405 on /v1/messages: the ClaudeSK server is outdated — contact the admin.')}</li>
+						<li>{$i18n.t('A "subscription required" reply means that model needs a paid plan — pick a free model.')}</li>
 					</ul>
 				</div>
 			</div>
