@@ -1771,17 +1771,16 @@ def seed_zenmux():
     global providers
 
     base_url = "https://zenmux.ai/api/v1"
-    env_keys = _split_keys(os.getenv("ZENMUX_API_KEYS", ""))
     if "zenmux" not in providers:
         providers["zenmux"] = {
             "name": "ZenMux",
             "base_url": base_url,
-            "api_keys": env_keys,
+            "api_keys": [],
         }
         provider_status["zenmux"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
         key_index["zenmux"] = 0
         save_providers()
-        logger.info(f"Seeded ZenMux provider ({len(env_keys)} env keys)")
+        logger.info("Seeded ZenMux provider (keys added via Admin → Providers)")
     else:
         changed = False
         prov = providers["zenmux"]
@@ -1790,9 +1789,6 @@ def seed_zenmux():
             changed = True
         if not prov.get("base_url"):
             prov["base_url"] = base_url
-            changed = True
-        if env_keys and not prov.get("api_keys"):
-            prov["api_keys"] = env_keys
             changed = True
         if changed:
             save_providers()
