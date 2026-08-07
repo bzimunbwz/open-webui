@@ -854,6 +854,33 @@ MAX_CONTINUATION_ROUNDS = 6
 _OVERLAP_WINDOW = 300
 
 
+_TERMINAL_TAIL = (".", "!", "?", "\u2026", "\u3002", "\uff01", "\uff1f",
+                  '"', "'", "\u201d", "\u2019", ")", "]", "}", "`", ":")
+
+
+def _looks_cut(text: str) -> bool:
+    """True when the text ends mid-sentence / mid-token — a strong signal the
+    model was cut off rather than done."""
+    t = text.rstrip()
+    if not t:
+        return False
+    if t.endswith("```"):
+        return False
+    return not t.endswith(_TERMINAL_TAIL)
+
+
+def _near_token_limit(text: str, body: dict) -> bool:
+    """Rough check: did this round's output come close to the requested
+    max_tokens? (~4 chars/token heuristic, 80% threshold)."""
+    try:
+        mt = int(body.get("max_tokens") or 0)
+    except Exception:
+        mt = 0
+    if mt <= 0:
+        return False
+    return (len(text) / 4.0) >= 0.8 * mt
+
+
 def _strip_overlap(prev_tail: str, new_text: str) -> str:
     """Models often repeat the tail of the partial answer when asked to
     continue. Trim the longest meaningful overlap (>= 8 chars)."""
@@ -936,7 +963,17 @@ async def _complete_with_failover(requested_model, tier, body, backends, user_em
 
         finish = choice.get("finish_reason")
         has_tool_calls = bool(msg.get("tool_calls"))
-        if finish != "length" or has_tool_calls or rounds >= MAX_CONTINUATION_ROUNDS or not text:
+        suspected_cut = (
+            finish == "stop"
+            and bool(text)
+            and _near_token_limit(text, cur_body)
+            and _looks_cut(partial)
+        )
+        if suspected_cut:
+            logger.info(
+                f"Suspected mislabelled cutoff for {requested_model} (non-stream) — continuing"
+            )
+        if (finish != "length" and not suspected_cut) or has_tool_calls or rounds >= MAX_CONTINUATION_ROUNDS or not text:
             break
         rounds += 1
         logger.info(
@@ -1128,7 +1165,23 @@ def _stream_with_failover(requested_model, tier, body, backends, user_email, est
                     yield b"data: [DONE]\n\n"
                     return
 
-                if finish_reason and finish_reason != "length":
+                # Some providers mislabel token-limit cutoffs as "stop".
+                # If the round filled the token budget AND the text ends
+                # mid-sentence, treat it as a cutoff and continue anyway.
+                suspected_cut = (
+                    finish_reason == "stop"
+                    and bool(round_text)
+                    and rounds < MAX_CONTINUATION_ROUNDS
+                    and _near_token_limit(round_text, cur_body)
+                    and _looks_cut(total_text)
+                )
+                if suspected_cut:
+                    logger.info(
+                        f"Suspected mislabelled cutoff for {requested_model} "
+                        f"(finish=stop but ~token-limit output ending mid-sentence) — continuing"
+                    )
+
+                if finish_reason and finish_reason != "length" and not suspected_cut:
                     yield finish_stream(finish_reason)
                     return
 
