@@ -29,17 +29,6 @@
       "name": "ZenMux",
       "base_url": "https://zenmux.ai/api/v1",
       "api_key": "${ZENMUX_API_KEYS}"
-    },
-    "openrouter": {
-      "name": "OpenRouter",
-      "base_url": "https://openrouter.ai/api/v1",
-      "api_key": "${OPENROUTER_API_KEYS}",
-      "enabled_models": [
-        "moonshotai/kimi-k3",
-        "deepseek/deepseek-v4-pro",
-        "deepseek/deepseek-v4-flash-0731",
-        "qwen/qwen3.8-max"
-      ]
     }
   },
   "facade_models": [

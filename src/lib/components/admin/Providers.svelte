@@ -111,13 +111,6 @@
 			docs_url: 'https://docs.z.ai/guides/overview/quick-start',
 			icon: '☁'
 		},
-		openrouter: {
-			name: 'OpenRouter',
-			base_url: 'https://openrouter.ai/api/v1',
-			description: 'OpenAI-compatible multi-provider router with 400+ models, 14 of them free (:free suffix). Add multiple API keys — requests automatically fall back to the next key on failure.',
-			docs_url: 'https://openrouter.ai/docs',
-			icon: '☁'
-		},
 		zenmux: {
 			name: 'ZenMux',
 			base_url: 'https://zenmux.ai/api/v1',
