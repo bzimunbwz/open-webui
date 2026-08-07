@@ -1502,6 +1502,7 @@ async def startup():
     seed_zai_models()
     seed_llm7_models()
     seed_cloudflare_models()
+    seed_zenmux()
     seed_bynara()
     add_bynara_fallback()
     seed_clod()
@@ -1756,6 +1757,69 @@ def seed_cloudflare_models():
         provider_model_tiers["cloudflare"] = dict(CF_MODELS)
         save_provider_model_tiers()
     logger.info(f"Seeded {len(CF_MODELS)} Cloudflare Workers AI models")
+
+
+def seed_zenmux():
+    """Ensure the ZenMux provider + its free models exist.
+
+    ZenMux (https://zenmux.ai) is an OpenAI-compatible multi-provider router.
+    It is listed in config.json under providers.zenmux but that config only
+    seeds on a *fresh* gateway (no persistent providers.json yet). On an
+    existing deploy the persistent providers.json is authoritative, so this
+    seed re-adds the provider + its free models on every startup.
+    """
+    global providers
+
+    base_url = "https://zenmux.ai/api/v1"
+    env_keys = _split_keys(os.getenv("ZENMUX_API_KEYS", ""))
+    if "zenmux" not in providers:
+        providers["zenmux"] = {
+            "name": "ZenMux",
+            "base_url": base_url,
+            "api_keys": env_keys,
+        }
+        provider_status["zenmux"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        key_index["zenmux"] = 0
+        save_providers()
+        logger.info(f"Seeded ZenMux provider ({len(env_keys)} env keys)")
+    else:
+        changed = False
+        prov = providers["zenmux"]
+        if not prov.get("name"):
+            prov["name"] = "ZenMux"
+            changed = True
+        if not prov.get("base_url"):
+            prov["base_url"] = base_url
+            changed = True
+        if env_keys and not prov.get("api_keys"):
+            prov["api_keys"] = env_keys
+            changed = True
+        if changed:
+            save_providers()
+
+    # Free models ZenMux serves. The provider's /v1/models endpoint is
+    # authoritative at runtime (auto-sync merges any extras in), but seeding
+    # guarantees the Provider-tab catalog + FREE badge without a manual sync.
+    ZENMUX_MODELS = {
+        "deepseek/deepseek-v4-flash-free": "free",
+        "z-ai/glm-4.7-flash-free": "free",
+    }
+    existing_cache = provider_models_cache.get("zenmux", [])
+    merged = list(dict.fromkeys(existing_cache + list(ZENMUX_MODELS.keys())))
+    if merged != existing_cache:
+        provider_models_cache["zenmux"] = merged
+        save_provider_models_cache()
+
+    prov_tiers = provider_model_tiers.get("zenmux", {})
+    changed = False
+    for mid, tier in ZENMUX_MODELS.items():
+        if prov_tiers.get(mid) != tier:
+            prov_tiers[mid] = tier
+            changed = True
+    provider_model_tiers["zenmux"] = prov_tiers
+    if changed:
+        save_provider_model_tiers()
+    logger.info(f"Seeded {len(ZENMUX_MODELS)} ZenMux free models")
 
 
 def seed_provider_catalogs():
