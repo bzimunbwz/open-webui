@@ -830,6 +830,351 @@ async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, t
     return None
 
 
+
+
+# ── Resilient Relay: failover + transparent auto-continuation ───────────────
+#
+#  1. Provider dies BEFORE any output  -> silently try the next backend the
+#     admin configured for the facade model (order preserved).
+#  2. Provider dies MID-RESPONSE, or stops at max_tokens (finish_reason ==
+#     "length") -> transparently re-prompt with the partial answer and stream
+#     the continuation into the SAME client response. No seam visible.
+#  3. Chunks are re-emitted under the facade model id (no backend name leaks).
+#  4. Usage is recorded once per request, summed across all rounds.
+
+CONTINUATION_PROMPT = (
+    "SYSTEM NOTICE: Your previous assistant reply (shown above) was cut off "
+    "mid-generation by a technical fault. Continue that reply EXACTLY from the "
+    "character where it stopped. Do not repeat anything already written, do not "
+    "apologise, do not summarise, do not add any preamble, greeting or headers. "
+    "If it stopped inside a code block, continue inside the same code block. "
+    "Output only the direct continuation so both parts join seamlessly."
+)
+MAX_CONTINUATION_ROUNDS = 6
+_OVERLAP_WINDOW = 300
+
+
+def _strip_overlap(prev_tail: str, new_text: str) -> str:
+    """Models often repeat the tail of the partial answer when asked to
+    continue. Trim the longest meaningful overlap (>= 8 chars)."""
+    max_n = min(len(prev_tail), len(new_text), _OVERLAP_WINDOW)
+    for n in range(max_n, 7, -1):
+        if prev_tail[-n:] == new_text[:n]:
+            return new_text[n:]
+    return new_text
+
+
+def _continuation_body(original_body: dict, partial: str) -> dict:
+    msgs = list(original_body.get("messages", []))
+    msgs.append({"role": "assistant", "content": partial})
+    msgs.append({"role": "user", "content": CONTINUATION_PROMPT})
+    return {**original_body, "messages": msgs}
+
+
+class _SSEParser:
+    """Incremental SSE parser: feed raw bytes, get complete data payloads."""
+
+    def __init__(self):
+        self.buf = b""
+
+    def feed(self, chunk: bytes):
+        self.buf += chunk
+        events = []
+        while b"\n" in self.buf:
+            line, self.buf = self.buf.split(b"\n", 1)
+            line = line.strip()
+            if line.startswith(b"data:"):
+                events.append(line[5:].strip())
+        return events
+
+
+def _sse_bytes(payload: dict) -> bytes:
+    return b"data: " + json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n\n"
+
+
+async def _pick_backend(backends, body, stream, errors):
+    """Try backends in admin-configured order; (pid, model, result) or None."""
+    for backend in backends:
+        pid = backend["provider"]
+        bmodel = backend["model"]
+        result = await try_provider(pid, bmodel, body, stream=stream, errors=errors)
+        if result is not None:
+            return pid, bmodel, result
+    return None
+
+
+async def _complete_with_failover(requested_model, tier, body, backends, user_email, errors):
+    """Non-streaming: failover across backends, auto-continue on token-limit
+    cutoffs, concatenate into one seamless answer. Returns None if every
+    backend failed before producing anything (caller sends busy response)."""
+    cur_body = body
+    partial = ""
+    data = None
+    pid_used = ""
+    rounds = 0
+    usage_total = 0
+
+    while True:
+        picked = await _pick_backend(backends, cur_body, stream=False, errors=errors)
+        if picked is None:
+            if partial and data is not None:
+                break  # deliver what we have rather than failing after partial success
+            return None
+        pid_used, _bmodel, result = picked
+        data = result["data"]
+
+        choice = (data.get("choices") or [{}])[0]
+        msg = choice.get("message", {}) or {}
+        text = msg.get("content") or ""
+        if rounds > 0 and text:
+            text = _strip_overlap(partial[-_OVERLAP_WINDOW:], text)
+        partial += text
+        try:
+            usage_total += int((data.get("usage") or {}).get("total_tokens", 0) or 0)
+        except Exception:
+            pass
+
+        finish = choice.get("finish_reason")
+        has_tool_calls = bool(msg.get("tool_calls"))
+        if finish != "length" or has_tool_calls or rounds >= MAX_CONTINUATION_ROUNDS or not text:
+            break
+        rounds += 1
+        logger.info(
+            f"Auto-continuing {requested_model} (round {rounds}, {len(partial)} chars so far, via {pid_used})"
+        )
+        cur_body = _continuation_body(body, partial)
+
+    if partial:
+        data["choices"][0]["message"]["content"] = partial
+    data["model"] = requested_model
+
+    try:
+        tok = usage_total if usage_total > 0 else (estimate_prompt_tokens(body) + max(1, len(partial) // 4))
+        record_usage(user_email, tok)
+    except Exception:
+        pass
+
+    return JSONResponse(content=data, headers={"X-Gateway-Provider": pid_used, "X-Model-Tier": tier})
+
+
+def _stream_with_failover(requested_model, tier, body, backends, user_email, est_prompt, errors):
+    """Streaming relay. Emits OpenAI-format chunks under the facade model id.
+
+      - provider fails before output      -> next backend, client sees nothing
+      - stream dies mid-output            -> auto-continuation round
+      - finish_reason == "length"         -> auto-continuation round
+      - finish_reason stop/tool_calls/... -> clean finish
+    Tool-call streams switch to verbatim passthrough (no continuation) since
+    partial tool-call JSON cannot be safely resumed.
+    """
+
+    async def gen():
+        chunk_id = "chatcmpl-" + uuid.uuid4().hex[:24]
+        created = int(time.time())
+        sent_role = False
+        total_text = ""
+        out_chars = 0
+        seen_total = 0
+        rounds = 0
+        no_progress_rounds = 0
+        cur_body = body
+
+        def make_chunk(delta: dict, finish=None):
+            return _sse_bytes({
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": requested_model,
+                "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+            })
+
+        def finish_stream(reason="stop"):
+            return make_chunk({}, finish=reason) + b"data: [DONE]\n\n"
+
+        try:
+            while True:
+                picked = await _pick_backend(backends, cur_body, stream=True, errors=errors)
+                if picked is None:
+                    if total_text:
+                        yield finish_stream("stop")
+                    else:
+                        if not sent_role:
+                            yield make_chunk({"role": "assistant"})
+                        yield make_chunk({"content": (
+                            "All model providers are busy right now. "
+                            "Please try again in a few minutes."
+                        )})
+                        yield finish_stream("stop")
+                    return
+
+                pid, bmodel, result = picked
+                resp = result["resp"]
+                client = result["client"]
+                parser = _SSEParser()
+                round_text = ""
+                finish_reason = None
+                verbatim_tool_mode = False
+                pending = "" if rounds > 0 else None  # buffer the seam for overlap-trim
+
+                def flush_pending():
+                    nonlocal pending, round_text, total_text, out_chars
+                    if not pending:
+                        pending = None
+                        return b""
+                    clean = _strip_overlap(total_text[-_OVERLAP_WINDOW:], pending)
+                    pending = None
+                    if not clean:
+                        return b""
+                    round_text += clean
+                    total_text += clean
+                    out_chars += len(clean)
+                    return make_chunk({"content": clean})
+
+                try:
+                    async for raw in resp.aiter_bytes(4096):
+                        for ev in parser.feed(raw):
+                            if ev == b"[DONE]":
+                                continue
+                            try:
+                                obj = json.loads(ev)
+                            except Exception:
+                                continue
+
+                            u = obj.get("usage")
+                            if isinstance(u, dict) and u.get("total_tokens"):
+                                try:
+                                    seen_total += int(u["total_tokens"])
+                                except Exception:
+                                    pass
+
+                            if verbatim_tool_mode:
+                                obj["model"] = requested_model
+                                choice0 = (obj.get("choices") or [{}])[0] if obj.get("choices") else {}
+                                if choice0.get("finish_reason"):
+                                    finish_reason = choice0["finish_reason"]
+                                yield _sse_bytes(obj)
+                                continue
+
+                            choices = obj.get("choices") or []
+                            if not choices:
+                                continue
+                            choice = choices[0]
+                            delta = choice.get("delta") or {}
+                            if choice.get("finish_reason"):
+                                finish_reason = choice["finish_reason"]
+
+                            # Tool calls: emit verbatim from here on (no continuation)
+                            if delta.get("tool_calls") is not None:
+                                verbatim_tool_mode = True
+                                if pending is not None:
+                                    out = flush_pending()
+                                    if out:
+                                        yield out
+                                if not sent_role and "role" not in delta:
+                                    delta["role"] = "assistant"
+                                sent_role = True
+                                obj["model"] = requested_model
+                                yield _sse_bytes(obj)
+                                continue
+
+                            text = delta.get("content") or ""
+                            reasoning = delta.get("reasoning_content") or delta.get("reasoning") or ""
+
+                            out_delta = {}
+                            if not sent_role:
+                                out_delta["role"] = "assistant"
+                                sent_role = True
+                            # Reasoning: first round only — replaying chain-of-thought
+                            # at a continuation seam would look broken to the client.
+                            if reasoning and rounds == 0:
+                                out_delta["reasoning_content"] = reasoning
+                                out_chars += len(reasoning)
+
+                            if text:
+                                if pending is not None:
+                                    pending += text
+                                    if len(pending) >= _OVERLAP_WINDOW:
+                                        out = flush_pending()
+                                        if out:
+                                            yield out
+                                    if out_delta:
+                                        yield make_chunk(out_delta)
+                                    continue
+                                round_text += text
+                                total_text += text
+                                out_chars += len(text)
+                                out_delta["content"] = text
+
+                            if out_delta:
+                                yield make_chunk(out_delta)
+                except Exception as e:
+                    logger.warning(f"Stream from {pid}/{bmodel} broke mid-response: {e}")
+                    finish_reason = None  # abnormal end -> continuation
+                finally:
+                    try:
+                        await resp.aclose()
+                        await client.aclose()
+                    except Exception:
+                        pass
+
+                # Flush any seam text still buffered at end of round
+                if pending is not None:
+                    out = flush_pending()
+                    if out:
+                        yield out
+
+                # ── Decide: done, or continue seamlessly? ──
+                if verbatim_tool_mode:
+                    yield b"data: [DONE]\n\n"
+                    return
+
+                if finish_reason and finish_reason != "length":
+                    yield finish_stream(finish_reason)
+                    return
+
+                if not round_text:
+                    no_progress_rounds += 1
+                else:
+                    no_progress_rounds = 0
+
+                if rounds >= MAX_CONTINUATION_ROUNDS or no_progress_rounds >= 2:
+                    if total_text:
+                        yield finish_stream(finish_reason or "stop")
+                    else:
+                        if not sent_role:
+                            yield make_chunk({"role": "assistant"})
+                        yield make_chunk({"content": (
+                            "All model providers are busy right now. "
+                            "Please try again in a few minutes."
+                        )})
+                        yield finish_stream("stop")
+                    return
+
+                rounds += 1
+                logger.info(
+                    f"Auto-continuing stream for {requested_model} "
+                    f"(round {rounds}, reason={finish_reason or 'connection-cut'}, {len(total_text)} chars so far)"
+                )
+                if total_text:
+                    cur_body = _continuation_body(body, total_text)
+        finally:
+            try:
+                tok = seen_total if seen_total > 0 else (est_prompt + max(1, out_chars // 4))
+                record_usage(user_email, tok)
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "X-Gateway-Provider": "relay",
+            "X-Model-Tier": tier,
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
 # ── Subscription Helpers ────────────────────────────────────────────────────
 
 def get_user_subscription(user_email: str) -> dict:
@@ -1843,89 +2188,29 @@ async def chat_completions(request: Request):
     expanded_backends = [b for b in expanded_backends if is_model_enabled(b["provider"], b["model"])]
 
     backend_errors = []
-    for backend in expanded_backends:
-        pid = backend["provider"]
-        bmodel = backend["model"]
-        logger.info(f"Trying {facade['name']} → {pid}/{bmodel}")
+    if not expanded_backends:
+        logger.warning(f"No backends configured for '{requested_model}'")
+        return providers_busy_response(requested_model, stream)
 
-        result = await try_provider(pid, bmodel, body, stream=stream, errors=backend_errors)
-        if result is not None:
-            if result.get("stream"):
-                http_resp = result["resp"]
-                http_client = result["client"]
+    # Resilient relay: admin-ordered failover across every configured backend,
+    # plus transparent auto-continuation if a response is cut off mid-stream or
+    # stops at the provider token limit. Usage recording preserved inside.
+    if stream:
+        return _stream_with_failover(
+            requested_model, tier, body, expanded_backends,
+            user_email=user_email,
+            est_prompt=estimate_prompt_tokens(body),
+            errors=backend_errors,
+        )
 
-                _est_prompt = estimate_prompt_tokens(body)
-                async def stream_out(resp=http_resp, client=http_client, _email=user_email, _prompt=_est_prompt):
-                    buf = ""
-                    out_chars = 0
-                    seen_total = 0
-                    try:
-                        async for chunk in resp.aiter_bytes(4096):
-                            yield chunk  # pass the raw stream through unchanged
-                            try:
-                                buf += chunk.decode("utf-8", "ignore")
-                                while "\n" in buf:
-                                    line, buf = buf.split("\n", 1)
-                                    line = line.strip()
-                                    if not line.startswith("data:"):
-                                        continue
-                                    payload = line[5:].strip()
-                                    if not payload or payload == "[DONE]":
-                                        continue
-                                    obj = json.loads(payload)
-                                    u = obj.get("usage")
-                                    if isinstance(u, dict) and u.get("total_tokens"):
-                                        seen_total = int(u["total_tokens"])
-                                    for ch in (obj.get("choices") or []):
-                                        delta = ch.get("delta") or {}
-                                        cc = delta.get("content")
-                                        if isinstance(cc, str):
-                                            out_chars += len(cc)
-                                        rc = delta.get("reasoning_content") or delta.get("reasoning")
-                                        if isinstance(rc, str):
-                                            out_chars += len(rc)
-                            except Exception:
-                                pass
-                    finally:
-                        await resp.aclose()
-                        await client.aclose()
-                        try:
-                            # Prefer the provider's real token count; otherwise estimate prompt + actual output text
-                            tok = seen_total if seen_total > 0 else (_prompt + max(1, out_chars // 4))
-                            record_usage(_email, tok)
-                        except Exception:
-                            pass
-
-                # Forward the upstream content-type if present
-                upstream_ct = http_resp.headers.get("content-type", "text/event-stream")
-                return StreamingResponse(
-                    stream_out(),
-                    media_type=upstream_ct,
-                    headers={"X-Gateway-Provider": pid, "X-Model-Tier": tier},
-                )
-            else:
-                data = result["data"]
-                data["model"] = requested_model
-                try:
-                    _u = data.get("usage") or {}
-                    _tok = int(_u.get("total_tokens", 0) or 0)
-                    if _tok <= 0:
-                        _out = 0
-                        for _ch in (data.get("choices") or []):
-                            _m = _ch.get("message") or {}
-                            if isinstance(_m.get("content"), str):
-                                _out += len(_m["content"])
-                        _tok = estimate_prompt_tokens(body) + max(1, _out // 4)
-                    record_usage(user_email, _tok)
-                except Exception:
-                    pass
-                return JSONResponse(
-                    content=data,
-                    headers={"X-Gateway-Provider": pid, "X-Model-Tier": tier},
-                )
-
-    logger.warning(f"All providers failed for '{requested_model}'")
-    return providers_busy_response(requested_model, stream)
+    resp = await _complete_with_failover(
+        requested_model, tier, body, expanded_backends,
+        user_email=user_email, errors=backend_errors,
+    )
+    if resp is None:
+        logger.warning(f"All providers failed for '{requested_model}': {backend_errors}")
+        return providers_busy_response(requested_model, stream)
+    return resp
 
 
 # ── User Subscription Routes ────────────────────────────────────────────────
