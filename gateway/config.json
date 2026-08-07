@@ -24,6 +24,11 @@
       "name": "Cloudflare Workers AI",
       "base_url": "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1",
       "api_key": "${CLOUDFLARE_API_KEY}"
+    },
+    "zenmux": {
+      "name": "ZenMux",
+      "base_url": "https://zenmux.ai/api/v1",
+      "api_key": "${ZENMUX_API_KEYS}"
     }
   },
   "facade_models": [
@@ -136,8 +141,34 @@
       "tier": "free",
       "backends": [
         {
+          "provider": "zenmux",
+          "model": "deepseek/deepseek-v4-flash-free"
+        },
+        {
           "provider": "llm7",
           "model": "deepseek-v4-flash:0731"
+        }
+      ]
+    },
+    {
+      "id": "glm-4.7-flash",
+      "name": "GLM 4.7 Flash ⭐",
+      "tier": "free",
+      "backends": [
+        {
+          "provider": "zenmux",
+          "model": "z-ai/glm-4.7-flash-free"
+        }
+      ]
+    },
+    {
+      "id": "glm-4.6v-flash",
+      "name": "GLM 4.6V Flash ⭐",
+      "tier": "free",
+      "backends": [
+        {
+          "provider": "zenmux",
+          "model": "z-ai/glm-4.6v-flash-free"
         }
       ]
     }
