@@ -25,10 +25,11 @@ import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 
+import asyncio
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gateway")
@@ -59,7 +60,11 @@ PROVIDER_MODELS_CACHE_PATH = os.path.join(DATA_DIR, "provider_models_cache.json"
 ENABLED_MODELS_PATH = os.path.join(DATA_DIR, "enabled_models.json")
 PROVIDER_MODEL_TIERS_PATH = os.path.join(DATA_DIR, "provider_model_tiers.json")
 DELETED_MODELS_PATH = os.path.join(DATA_DIR, "deleted_models.json")
+USAGE_PATH = os.path.join(DATA_DIR, "usage.json")
+CREDITS_PATH = os.path.join(DATA_DIR, "credits.json")
+ARTIFACTS_PATH = os.path.join(DATA_DIR, "shared_artifacts.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
+DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "8192") or 8192)  # floor for output when client omits max_tokens
 
 # Runtime state
 providers: dict = {}
@@ -67,6 +72,7 @@ facade_models: dict = {}
 model_tiers: dict = {}
 provider_status: dict = {}
 key_index: dict = {}
+key_status: dict = {}            # f"{pid}#{key}" -> cooldown_until (skip rate-limited keys)
 provider_models_cache: dict = {}   # provider_id → [model_id, ...]
 enabled_models: dict = {}          # provider_id → [model_id, ...] (enabled models per provider)
 provider_model_tiers: dict = {}    # provider_id → {model_id: "free"|"paid"}
@@ -121,6 +127,9 @@ def load_all():
     load_enabled_models()
     load_provider_model_tiers()
     load_deleted_models()
+    load_usage()
+    load_credits()
+    load_artifacts()
 
 
 def load_providers():
@@ -225,6 +234,9 @@ def load_packages():
                 "price_monthly": 0,
                 "price_yearly": 0,
                 "features": ["Access to free-tier models", "Community support"],
+                "token_limit_month": 200000,
+                "msg_limit_4h": 10,
+                "msg_limit_7d": 50,
                 "active": True,
                 "order": 0,
             },
@@ -237,6 +249,9 @@ def load_packages():
                 "price_monthly": 9.99,
                 "price_yearly": 99.99,
                 "features": ["All free models", "Premium models", "Priority support", "Higher rate limits"],
+                "token_limit_month": 5000000,
+                "msg_limit_4h": 40,
+                "msg_limit_7d": 300,
                 "active": True,
                 "order": 1,
             },
@@ -249,6 +264,9 @@ def load_packages():
                 "price_monthly": 29.99,
                 "price_yearly": 299.99,
                 "features": ["All Pro features", "Custom model access", "Dedicated support", "SLA guarantee"],
+                "token_limit_month": 100000000,
+                "msg_limit_4h": 150,
+                "msg_limit_7d": 1200,
                 "active": True,
                 "order": 2,
             },
@@ -260,6 +278,138 @@ def save_packages():
     ensure_data_dir()
     with open(PACKAGES_PATH, "w") as f:
         json.dump(packages, f, indent=2)
+
+
+# ── Usage tracking & per-plan limits (4h/7d messages + monthly tokens) ───────
+usage_log: dict = {}            # email -> list[[ts, tokens]]  (one entry per request)
+credits: dict = {}              # email -> bonus tokens (admin-granted, added to monthly cap)
+shared_artifacts: dict = {}     # id -> {content, type, created}
+WINDOW_4H = 4 * 3600
+WINDOW_7D = 7 * 86400
+WINDOW_30D = 30 * 86400
+DEFAULT_TIER_LIMITS = {
+    "free":       {"msg_4h": 10,  "msg_7d": 50,   "token_month": 200000},
+    "pro":        {"msg_4h": 40,  "msg_7d": 300,  "token_month": 5000000},
+    "max":        {"msg_4h": 150, "msg_7d": 1200, "token_month": 100000000},
+    "enterprise": {"msg_4h": 150, "msg_7d": 1200, "token_month": 100000000},
+}
+
+def load_usage():
+    global usage_log
+    try:
+        with open(USAGE_PATH) as f:
+            usage_log = json.load(f)
+    except FileNotFoundError:
+        usage_log = {}
+
+def save_usage():
+    ensure_data_dir()
+    with open(USAGE_PATH, "w") as f:
+        json.dump(usage_log, f)
+
+def load_credits():
+    global credits
+    try:
+        with open(CREDITS_PATH) as f:
+            credits = json.load(f)
+    except FileNotFoundError:
+        credits = {}
+
+def save_credits():
+    ensure_data_dir()
+    with open(CREDITS_PATH, "w") as f:
+        json.dump(credits, f, indent=2)
+
+def load_artifacts():
+    global shared_artifacts
+    try:
+        with open(ARTIFACTS_PATH) as f:
+            shared_artifacts = json.load(f)
+    except FileNotFoundError:
+        shared_artifacts = {}
+
+def save_artifacts():
+    ensure_data_dir()
+    with open(ARTIFACTS_PATH, "w") as f:
+        json.dump(shared_artifacts, f)
+
+def get_user_credits(email: str) -> int:
+    return int(credits.get((email or "").strip().lower(), 0) or 0)
+
+def record_usage(email: str, tokens: int):
+    if not email:
+        return
+    email = email.strip().lower()
+    now = time.time()
+    cutoff = now - WINDOW_30D
+    entries = [e for e in usage_log.get(email, []) if e and e[0] >= cutoff]
+    entries.append([now, int(max(0, tokens))])
+    usage_log[email] = entries
+    try:
+        save_usage()
+    except Exception as e:
+        logger.warning(f"save_usage failed: {e}")
+
+def usage_in_window(email: str, window: float):
+    """Returns (tokens, messages, resets_in_seconds) within the rolling window."""
+    email = (email or "").strip().lower()
+    now = time.time()
+    cutoff = now - window
+    tokens = 0
+    msgs = 0
+    oldest = None
+    for ts, tok in usage_log.get(email, []):
+        if ts >= cutoff:
+            tokens += tok
+            msgs += 1
+            if oldest is None or ts < oldest:
+                oldest = ts
+    resets_in = int((oldest + window) - now) if oldest is not None else 0
+    return tokens, msgs, max(0, resets_in)
+
+def get_user_limits(email: str) -> dict:
+    email = (email or "").strip().lower()
+    sub = subscriptions.get(email)
+    tier = "free"
+    pkg = None
+    pkg_name = "Free"
+    if sub and sub.get("active", True):
+        tier = sub.get("tier", "free")
+        pkg = packages.get(sub.get("package_id", ""))
+        if pkg:
+            pkg_name = pkg.get("name", tier)
+    d = DEFAULT_TIER_LIMITS.get(tier, DEFAULT_TIER_LIMITS["free"])
+    base_token_month = int((pkg or {}).get("token_limit_month", d["token_month"]) or 0)
+    extra = get_user_credits(email)
+    return {
+        "tier": tier,
+        "package": pkg_name,
+        "msg_4h": int((pkg or {}).get("msg_limit_4h", d["msg_4h"]) or 0),
+        "msg_7d": int((pkg or {}).get("msg_limit_7d", d["msg_7d"]) or 0),
+        "token_month": base_token_month + extra,
+        "base_token_month": base_token_month,
+        "extra_credits": extra,
+    }
+
+def estimate_prompt_tokens(body: dict) -> int:
+    chars = 0
+    for m in body.get("messages", []):
+        c = m.get("content", "")
+        if isinstance(c, str):
+            chars += len(c)
+        elif isinstance(c, list):
+            for part in c:
+                if isinstance(part, dict):
+                    chars += len(str(part.get("text", "")))
+    return max(1, chars // 4)
+
+def _fmt_duration(secs: int) -> str:
+    secs = max(0, int(secs))
+    if secs >= 86400:
+        return f"{secs // 86400}d {(secs % 86400) // 3600}h"
+    if secs >= 3600:
+        return f"{secs // 3600}h {(secs % 3600) // 60}m"
+    return f"{max(1, secs // 60)}m"
 
 
 def load_coupons():
@@ -401,20 +551,104 @@ def save_deleted_models():
 def get_next_key(provider_id: str) -> str:
     prov = providers.get(provider_id, {})
     keys = prov.get("api_keys", [])
+    if isinstance(keys, str):
+        keys = [keys] if keys else []
+        prov["api_keys"] = keys
     if not keys:
         return ""
-    idx = key_index.get(provider_id, 0) % len(keys)
-    key_index[provider_id] = (idx + 1) % len(keys)
+    n = len(keys)
+    start = key_index.get(provider_id, 0) % n
+    now = time.time()
+    # Prefer a key that is NOT in cooldown so multiple keys actually fall back
+    for i in range(n):
+        idx = (start + i) % n
+        if key_status.get(f"{provider_id}#{keys[idx]}", 0) <= now:
+            key_index[provider_id] = (idx + 1) % n
+            return keys[idx]
+    # All keys cooled down -> best-effort round-robin
+    idx = start
+    key_index[provider_id] = (idx + 1) % n
     return keys[idx]
 
 
+KEY_COOLDOWN = 45  # seconds a rate-limited / bad key is skipped
+
+
 def mark_key_failed(provider_id: str, failed_key: str):
-    prov = providers.get(provider_id, {})
-    keys = prov.get("api_keys", [])
+    if failed_key:
+        key_status[f"{provider_id}#{failed_key}"] = time.time() + KEY_COOLDOWN
+    keys = providers.get(provider_id, {}).get("api_keys", [])
     if len(keys) <= 1:
+        # Only one key -> no fallback possible, let provider health react
         mark_failure(provider_id)
         return
-    logger.info(f"Rotating key for {provider_id} (key ending ...{failed_key[-4:] if len(failed_key) >= 4 else '****'} failed)")
+    suffix = failed_key[-4:] if len(failed_key) >= 4 else "****"
+    logger.info(f"Key ...{suffix} cooled {KEY_COOLDOWN}s for {provider_id} (rotating to next key)")
+
+
+ep_index: dict = {}  # pid -> round-robin index across (base_url, api_key) endpoints
+
+
+def _cf_base(account_id: str) -> str:
+    return f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
+
+
+def list_endpoints(pid: str):
+    """All (base_url, api_key) attempts for a provider. Combines the default
+    base_url paired with each api_key, plus explicit `endpoints` entries — each
+    {base_url|account_id, api_key}. If base_url contains the placeholder
+    `{account_id}` it is a TEMPLATE: each account's id is substituted in, so
+    rotation auto-fills the account id and can fall back across accounts (which
+    dodges a per-account quota)."""
+    prov = providers.get(pid, {})
+    base = prov.get("base_url", "")
+    aks = prov.get("api_keys", [])
+    if isinstance(aks, str):
+        aks = [aks] if aks else []
+        prov["api_keys"] = aks
+    base_tpl = "{account_id}" in base
+    eps = []
+    for k in aks:
+        if base and not base_tpl:  # a plain key needs a concrete base_url
+            eps.append((base, k))
+    for ep in (prov.get("endpoints") or []):
+        acc = ep.get("account_id", "")
+        bu = ep.get("base_url", "")
+        if not bu:
+            if acc and base_tpl:
+                bu = base.replace("{account_id}", acc)
+            elif acc and pid == "cloudflare":
+                bu = _cf_base(acc)
+            elif not base_tpl:
+                bu = base
+        if bu and "{account_id}" not in bu:
+            eps.append((bu, ep.get("api_key", "")))
+    if not eps and base and not base_tpl:
+        eps.append((base, ""))
+    return eps
+
+
+def next_endpoint(pid: str):
+    """Round-robin to the next endpoint that isn't in cooldown."""
+    eps = list_endpoints(pid)
+    if not eps:
+        return None
+    n = len(eps)
+    start = ep_index.get(pid, 0) % n
+    now = time.time()
+    for i in range(n):
+        idx = (start + i) % n
+        bu, k = eps[idx]
+        if key_status.get(f"{pid}#{bu}#{k}", 0) <= now:
+            ep_index[pid] = (idx + 1) % n
+            return bu, k
+    idx = start
+    ep_index[pid] = (idx + 1) % n
+    return eps[idx]
+
+
+def mark_endpoint_failed(pid: str, base_url: str, api_key: str):
+    key_status[f"{pid}#{base_url}#{api_key}"] = time.time() + KEY_COOLDOWN
 
 
 # ── Provider Health ─────────────────────────────────────────────────────────
@@ -481,96 +715,106 @@ def is_model_available(pid: str, model: str) -> bool:
 RETRYABLE = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 
 
-async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, timeout: float = 120.0):
+async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, timeout: float = 120.0, errors=None):
+    def note(reason, status=None):
+        if errors is not None:
+            errors.append({"provider": pid, "model": backend_model, "status": status, "error": str(reason)[:200]})
+
     prov = providers.get(pid)
-    if not prov or not prov.get("base_url") or not is_available(pid):
-        return None
+    if not prov or not prov.get("base_url"):
+        note("provider has no base_url"); return None
+    if not is_available(pid):
+        note("provider in cooldown"); return None
     if not is_model_available(pid, backend_model):
-        logger.debug(f"Skipping {pid}/{backend_model} (in per-model cooldown)")
-        return None
+        note("model in per-model cooldown (recent failures)"); return None
 
-    keys = prov.get("api_keys", [])
-    attempts = max(len(keys), 1)
+    eps = list_endpoints(pid)
+    attempts = max(len(eps), 1)
+    last = "no usable endpoint/key"
 
-    for attempt in range(attempts):
-        api_key = get_next_key(pid)
-        url = prov["base_url"].rstrip("/") + "/chat/completions"
+    for _ in range(attempts):
+        sel = next_endpoint(pid)
+        if sel is None:
+            break
+        base_url, api_key = sel
+        url = base_url.rstrip("/") + "/chat/completions"
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-
         req_body = {**body, "model": backend_model}
 
         try:
-            # Use generous timeouts for streaming: no read timeout (SSE tokens arrive slowly)
             if stream:
                 client_timeout = httpx.Timeout(connect=15.0, read=None, write=15.0, pool=15.0)
             else:
                 client_timeout = httpx.Timeout(timeout)
-
-            # Don't use 'async with' — we need the client alive for streaming
             client = httpx.AsyncClient(timeout=client_timeout)
             try:
                 if stream:
                     req = client.build_request("POST", url, json=req_body, headers=headers)
                     resp = await client.send(req, stream=True)
-                    if resp.status_code == 429:
-                        await resp.aclose()
-                        await client.aclose()
-                        mark_key_failed(pid, api_key)
-                        continue
-                    if resp.status_code in RETRYABLE or resp.status_code >= 400:
-                        await resp.aclose()
-                        await client.aclose()
+                    sc = resp.status_code
+                    if sc in (429, 402, 401):
+                        await resp.aclose(); await client.aclose()
+                        mark_endpoint_failed(pid, base_url, api_key)
+                        last = f"HTTP {sc} (quota/auth - rotating to next key/account)"; continue
+                    if sc in RETRYABLE:
+                        await resp.aclose(); await client.aclose()
+                        mark_model_failure(pid, backend_model); mark_failure(pid)
+                        last = f"HTTP {sc} (server error)"; continue
+                    if sc >= 400:
+                        txt = ""
+                        try:
+                            await resp.aread(); txt = resp.text[:200]
+                        except Exception:
+                            pass
+                        await resp.aclose(); await client.aclose()
+                        if sc == 404 and ("could not route" in txt.lower() or "object identifier" in txt.lower()):
+                            mark_endpoint_failed(pid, base_url, api_key)
+                            last = "HTTP 404 invalid account/endpoint (rotating)"; continue
                         mark_model_failure(pid, backend_model)
-                        mark_failure(pid)
-                        return None
-
-                    mark_success(pid)
-                    mark_model_success(pid, backend_model)
+                        note(txt or f"HTTP {sc}", sc); return None
+                    mark_success(pid); mark_model_success(pid, backend_model)
                     return {"client": client, "resp": resp, "stream": True}
                 else:
                     resp = await client.post(url, json=req_body, headers=headers)
-                    if resp.status_code == 429:
+                    sc = resp.status_code
+                    if sc in (429, 402, 401):
                         await client.aclose()
-                        mark_key_failed(pid, api_key)
-                        continue
-                    if resp.status_code in RETRYABLE or resp.status_code >= 400:
+                        mark_endpoint_failed(pid, base_url, api_key)
+                        last = f"HTTP {sc} (quota/auth - rotating to next key/account)"; continue
+                    if sc in RETRYABLE:
                         await client.aclose()
+                        mark_model_failure(pid, backend_model); mark_failure(pid)
+                        last = f"HTTP {sc} (server error)"; continue
+                    if sc >= 400:
+                        txt = resp.text[:200]
+                        await client.aclose()
+                        if sc == 404 and ("could not route" in txt.lower() or "object identifier" in txt.lower()):
+                            mark_endpoint_failed(pid, base_url, api_key)
+                            last = "HTTP 404 invalid account/endpoint (rotating)"; continue
                         mark_model_failure(pid, backend_model)
-                        mark_failure(pid)
-                        return None
-
-                    # Validate non-streaming response has content
+                        note(txt or f"HTTP {sc}", sc); return None
                     data = resp.json()
                     choices = data.get("choices", [])
-                    msg = choices[0].get("message", {}) if choices else {}
-                    # Accept if content OR reasoning_content is present (Z.AI thinking mode)
-                    if not choices or (not msg.get("content") and not msg.get("reasoning_content")):
-                        logger.warning(f"Provider {pid}/{backend_model} returned empty response")
+                    m = choices[0].get("message", {}) if choices else {}
+                    if not choices or (not m.get("content") and not m.get("reasoning_content")):
                         await client.aclose()
                         mark_model_failure(pid, backend_model)
-                        return None
-
-                    mark_success(pid)
-                    mark_model_success(pid, backend_model)
+                        last = "empty completion"; continue
+                    mark_success(pid); mark_model_success(pid, backend_model)
                     await client.aclose()
                     return {"data": data, "stream": False}
-
             except Exception as inner_e:
-                await client.aclose()
-                raise inner_e
-
+                await client.aclose(); raise inner_e
         except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
-            mark_failure(pid)
-            logger.warning(f"Provider {pid} error: {e}")
-            return None
+            mark_model_failure(pid, backend_model)
+            last = f"{type(e).__name__}"; continue
         except Exception as e:
-            mark_failure(pid)
-            logger.error(f"Provider {pid} unexpected: {e}")
-            return None
+            mark_model_failure(pid, backend_model)
+            last = f"{type(e).__name__}: {e}"; continue
 
-    mark_failure(pid)
+    note(last)
     return None
 
 
@@ -847,8 +1091,15 @@ async def startup():
     load_all()
     seed_zai_models()
     seed_llm7_models()
+    seed_cloudflare_models()
+    seed_bynara()
+    add_bynara_fallback()
+    seed_clod()
+    add_clod_fallback()
     # Auto-sync models for all providers that have a base_url and API keys
     await auto_sync_provider_models()
+    mark_bynara_models_free()
+    mark_clod_models_free()
     # Populate Provider-tab catalogs (model lists + FREE/PAID badges) last so the
     # official tier classification is authoritative over live-sync results.
     seed_provider_catalogs()
@@ -1019,6 +1270,84 @@ def seed_llm7_models():
     save_provider_model_tiers()
 
 
+def seed_cloudflare_models():
+    """Seed the Cloudflare Workers AI provider + its text-generation models.
+
+    Cloudflare exposes an OpenAI-compatible endpoint at
+    /accounts/{account_id}/ai/v1, so the gateway routes to it normally. Add
+    multiple API tokens (api_keys list, via the admin Providers tab) for
+    automatic fallback/rotation.
+
+    Cloudflare bills by usage (Neurons) with a shared free daily allocation
+    rather than an official per-model free/paid split, so tiers below are a
+    size-based heuristic: small/efficient models = free, large flagship
+    models = paid. Source: https://developers.cloudflare.com/workers-ai/models/
+    """
+    global providers
+    # No account id is hardcoded. base_url is a TEMPLATE with an {account_id}
+    # placeholder; each account in the Providers UI supplies its own id + token,
+    # and the gateway substitutes the id in during rotation.
+    template = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
+    account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+    key = os.getenv("CLOUDFLARE_API_KEY", "").strip()
+
+    if "cloudflare" not in providers:
+        providers["cloudflare"] = {
+            "name": "Cloudflare Workers AI",
+            "base_url": template,
+            "api_keys": [],
+            "endpoints": ([{"account_id": account, "api_key": key}] if (account and key) else []),
+        }
+        save_providers()
+        provider_status["cloudflare"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        key_index["cloudflare"] = 0
+        logger.info("Seeded Cloudflare Workers AI provider (base_url template; accounts set by admin)")
+    elif not providers["cloudflare"].get("base_url"):
+        providers["cloudflare"]["base_url"] = template
+        save_providers()
+
+    # id -> tier  (size-based heuristic; see docstring)
+    CF_MODELS = {
+        # --- Current flagship models (paid) ---
+        "@cf/openai/gpt-oss-120b": "paid",
+        "@cf/openai/gpt-oss-20b": "paid",
+        "@cf/meta/llama-4-scout-17b-16e-instruct": "paid",
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast": "paid",
+        "@cf/nvidia/nemotron-3-120b-a12b": "paid",
+        "@cf/google/gemma-4-26b-a4b-it": "paid",
+        "@cf/aisingapore/gemma-sea-lion-v4-27b-it": "paid",
+        "@cf/zai-org/glm-4.7-flash": "paid",
+        "@cf/qwen/qwq-32b": "paid",
+        "@cf/qwen/qwen2.5-coder-32b-instruct": "paid",
+        "@cf/qwen/qwen3-30b-a3b-fp8": "paid",
+        "@cf/mistralai/mistral-small-3.1-24b-instruct": "paid",
+        "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b": "paid",
+        # --- Current small / efficient models (free) ---
+        "@cf/meta/llama-3.2-1b-instruct": "free",
+        "@cf/meta/llama-3.2-3b-instruct": "free",
+        "@cf/meta/llama-3.1-8b-instruct-fast": "free",
+        "@cf/ibm-granite/granite-4.0-h-micro": "free",
+        "@cf/meta/llama-guard-3-8b": "free",
+        # --- Requested / newer (may not be live on Cloudflare yet) ---
+        "@cf/zai-org/glm-5.2": "paid",
+        "@cf/moonshotai/kimi-k2.7-code": "paid",
+        "@cf/moonshotai/kimi-k2.6": "paid",
+        "@cf/moonshotai/kimi-k2.5": "paid",
+        "@cf/deepseek-ai/deepseek-v4-pro": "paid",
+        "@cf/anthropic/claude-fable-5": "paid",
+    }
+
+    # Authoritative for cloudflare: replace cache+tiers so retired models drop out
+    model_ids = list(CF_MODELS.keys())
+    if provider_models_cache.get("cloudflare") != model_ids:
+        provider_models_cache["cloudflare"] = model_ids
+        save_provider_models_cache()
+    if provider_model_tiers.get("cloudflare") != CF_MODELS:
+        provider_model_tiers["cloudflare"] = dict(CF_MODELS)
+        save_provider_model_tiers()
+    logger.info(f"Seeded {len(CF_MODELS)} Cloudflare Workers AI models")
+
+
 def seed_provider_catalogs():
     """Populate the admin Provider tab with the full official model list +
     free/paid badge for each provider.
@@ -1121,6 +1450,119 @@ def seed_provider_catalogs():
     )
 
 
+def seed_clod():
+    """Ensure the CLoD (clod.io) OpenAI-compatible router provider exists (all models free)."""
+    global providers
+    key = os.getenv("CLOD_API_KEY", "").strip()
+    prov = providers.get("clod")
+    if prov is None:
+        providers["clod"] = {
+            "name": "CLoD",
+            "base_url": "https://api.clod.io/v1",
+            "api_keys": [key] if key else [],
+            "default_tier": "free",
+        }
+        provider_status["clod"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        key_index["clod"] = 0
+        save_providers()
+        logger.info("Seeded CLoD provider")
+    else:
+        changed = False
+        if key and not prov.get("api_keys"):
+            prov["api_keys"] = [key]; changed = True
+        if prov.get("default_tier") != "free":
+            prov["default_tier"] = "free"; changed = True
+        if changed:
+            save_providers()
+
+
+def mark_clod_models_free():
+    ids = provider_models_cache.get("clod", [])
+    if not ids:
+        return
+    tiers = provider_model_tiers.get("clod", {})
+    changed = False
+    for mid in ids:
+        if tiers.get(mid) != "free":
+            tiers[mid] = "free"
+            changed = True
+    provider_model_tiers["clod"] = tiers
+    if changed:
+        save_provider_model_tiers()
+    logger.info(f"Marked {len(ids)} CLoD models as free")
+
+
+def add_clod_fallback():
+    """Append CLoD as a last-resort (wildcard) fallback backend on every facade model."""
+    changed = 0
+    for mid, m in facade_models.items():
+        backends = m.get("backends", [])
+        if not any(b.get("provider") == "clod" for b in backends):
+            backends.append({"provider": "clod", "model": "*"})
+            m["backends"] = backends
+            changed += 1
+    if changed:
+        save_models()
+        logger.info(f"Added CLoD fallback backend to {changed} facade models")
+
+
+def seed_bynara():
+    """Ensure the Bynara free-model router provider exists (all models free)."""
+    global providers
+    key = os.getenv("BYNARA_API_KEY", "").strip()
+    prov = providers.get("bynara")
+    if prov is None:
+        providers["bynara"] = {
+            "name": "Bynara",
+            "base_url": "https://router.bynara.id/v1",
+            "api_keys": [key] if key else [],
+            "default_tier": "free",
+        }
+        provider_status["bynara"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        key_index["bynara"] = 0
+        save_providers()
+        logger.info("Seeded Bynara provider")
+    else:
+        changed = False
+        if key and not prov.get("api_keys"):
+            prov["api_keys"] = [key]; changed = True
+        if prov.get("default_tier") != "free":
+            prov["default_tier"] = "free"; changed = True
+        if changed:
+            save_providers()
+
+
+def add_bynara_fallback():
+    """Append Bynara as a last-resort (wildcard) fallback backend on every facade model."""
+    changed = 0
+    for mid, m in facade_models.items():
+        backends = m.get("backends", [])
+        if not any(b.get("provider") == "bynara" for b in backends):
+            backends.append({"provider": "bynara", "model": "*"})
+            m["backends"] = backends
+            changed += 1
+    if changed:
+        save_models()
+        logger.info(f"Added Bynara fallback backend to {changed} facade models")
+
+
+def mark_bynara_models_free():
+    """Mark every synced Bynara model as free (it's a free-model router)."""
+    ids = provider_models_cache.get("bynara", [])
+    if not ids:
+        return
+    tiers = provider_model_tiers.get("bynara", {})
+    changed = False
+    for mid in ids:
+        if tiers.get(mid) != "free":
+            tiers[mid] = "free"
+            changed = True
+    provider_model_tiers["bynara"] = tiers
+    if changed:
+        save_provider_model_tiers()
+    logger.info(f"Marked {len(ids)} Bynara models as free")
+
+
 async def auto_sync_provider_models():
     """Sync model lists from all configured providers on startup."""
     for pid, prov in providers.items():
@@ -1208,12 +1650,62 @@ def build_upsell_message(model_name: str) -> str:
     return "\n".join(lines)
 
 
+def usage_limit_response(model_id: str, stream: bool, window_label: str, resets_in: int):
+    content = (
+        f"\u23f3 **You've reached your {window_label} limit.**\n\n"
+        f"It resets in about **{_fmt_duration(resets_in)}**. "
+        f"Need more? [Upgrade your plan]({get_upgrade_url()}) for higher limits."
+    )
+    created = int(time.time())
+    cid = f"chatcmpl-limit-{created}"
+    if stream:
+        def gen():
+            first = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
+                     "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}]}
+            yield f"data: {json.dumps(first)}\n\n"
+            last = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+            yield f"data: {json.dumps(last)}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(gen(), media_type="text/event-stream")
+    payload = {"id": cid, "object": "chat.completion", "created": created, "model": model_id,
+               "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+               "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
+    return JSONResponse(payload)
+
+
 def subscription_required_response(model_name: str, model_id: str, stream: bool):
     """Return the upsell as a normal 200 chat completion (stream or JSON) so the
     stock Open WebUI UI renders it as a clean assistant message, not a red error."""
     content = build_upsell_message(model_name)
     created = int(time.time())
     cid = f"chatcmpl-sub-{created}"
+    if stream:
+        def gen():
+            first = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
+                     "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}]}
+            yield f"data: {json.dumps(first)}\n\n"
+            last = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+            yield f"data: {json.dumps(last)}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(gen(), media_type="text/event-stream")
+    payload = {"id": cid, "object": "chat.completion", "created": created, "model": model_id,
+               "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+               "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
+    return JSONResponse(payload)
+
+
+def providers_busy_response(model_id: str, stream: bool):
+    """Return a clean 'all providers busy' notice as a normal 200 completion so
+    clients show a friendly message instead of a raw error / attempts dump."""
+    content = (
+        "\u26a0\ufe0f **All models are busy right now.**\n\n"
+        "Every available provider is rate-limited or temporarily unavailable \u2014 "
+        "this is usually short-lived. Please wait a moment and try again."
+    )
+    created = int(time.time())
+    cid = f"chatcmpl-busy-{created}"
     if stream:
         def gen():
             first = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model_id,
@@ -1237,6 +1729,15 @@ async def chat_completions(request: Request):
     stream = body.get("stream", False)
     user_email = get_user_email(request)
 
+    # Prevent upstream free providers from truncating long code/answers:
+    # if the client didn't set max_tokens, request a generous output ceiling.
+    try:
+        _mt = body.get("max_tokens")
+        if _mt is None or int(_mt) <= 0:
+            body["max_tokens"] = DEFAULT_MAX_TOKENS
+    except Exception:
+        body["max_tokens"] = DEFAULT_MAX_TOKENS
+
     facade = facade_models.get(requested_model)
     if not facade:
         raise HTTPException(status_code=404, detail=f"Model '{requested_model}' not found")
@@ -1246,6 +1747,20 @@ async def chat_completions(request: Request):
     # Check subscription access — return a friendly in-chat upsell instead of a raw 403
     if tier != "free" and not can_access_model(user_email, requested_model):
         return subscription_required_response(facade["name"], requested_model, stream)
+
+    # Enforce per-plan usage limits: 4h & 7d message counts + monthly token cap
+    _req_admin = request.headers.get("Authorization", "") == f"Bearer {ADMIN_API_KEY}"
+    if not _req_admin and user_email:
+        _lim = get_user_limits(user_email)
+        _, _m4, _r4 = usage_in_window(user_email, WINDOW_4H)
+        _, _m7, _r7 = usage_in_window(user_email, WINDOW_7D)
+        _t30, _, _r30 = usage_in_window(user_email, WINDOW_30D)
+        if _lim["msg_4h"] and _m4 >= _lim["msg_4h"]:
+            return usage_limit_response(requested_model, stream, "4-hour message", _r4)
+        if _lim["msg_7d"] and _m7 >= _lim["msg_7d"]:
+            return usage_limit_response(requested_model, stream, "7-day message", _r7)
+        if _lim["token_month"] and _t30 >= _lim["token_month"]:
+            return usage_limit_response(requested_model, stream, "monthly token", _r30)
 
     # Check if request is from admin (skip identity injection for admin)
     is_admin = request.headers.get("Authorization", "") == f"Bearer {ADMIN_API_KEY}"
@@ -1315,24 +1830,59 @@ async def chat_completions(request: Request):
     # Drop any backend whose model has been disabled in the provider list
     expanded_backends = [b for b in expanded_backends if is_model_enabled(b["provider"], b["model"])]
 
+    backend_errors = []
     for backend in expanded_backends:
         pid = backend["provider"]
         bmodel = backend["model"]
         logger.info(f"Trying {facade['name']} → {pid}/{bmodel}")
 
-        result = await try_provider(pid, bmodel, body, stream=stream)
+        result = await try_provider(pid, bmodel, body, stream=stream, errors=backend_errors)
         if result is not None:
             if result.get("stream"):
                 http_resp = result["resp"]
                 http_client = result["client"]
 
-                async def stream_out(resp=http_resp, client=http_client):
+                _est_prompt = estimate_prompt_tokens(body)
+                async def stream_out(resp=http_resp, client=http_client, _email=user_email, _prompt=_est_prompt):
+                    buf = ""
+                    out_chars = 0
+                    seen_total = 0
                     try:
                         async for chunk in resp.aiter_bytes(4096):
-                            yield chunk
+                            yield chunk  # pass the raw stream through unchanged
+                            try:
+                                buf += chunk.decode("utf-8", "ignore")
+                                while "\n" in buf:
+                                    line, buf = buf.split("\n", 1)
+                                    line = line.strip()
+                                    if not line.startswith("data:"):
+                                        continue
+                                    payload = line[5:].strip()
+                                    if not payload or payload == "[DONE]":
+                                        continue
+                                    obj = json.loads(payload)
+                                    u = obj.get("usage")
+                                    if isinstance(u, dict) and u.get("total_tokens"):
+                                        seen_total = int(u["total_tokens"])
+                                    for ch in (obj.get("choices") or []):
+                                        delta = ch.get("delta") or {}
+                                        cc = delta.get("content")
+                                        if isinstance(cc, str):
+                                            out_chars += len(cc)
+                                        rc = delta.get("reasoning_content") or delta.get("reasoning")
+                                        if isinstance(rc, str):
+                                            out_chars += len(rc)
+                            except Exception:
+                                pass
                     finally:
                         await resp.aclose()
                         await client.aclose()
+                        try:
+                            # Prefer the provider's real token count; otherwise estimate prompt + actual output text
+                            tok = seen_total if seen_total > 0 else (_prompt + max(1, out_chars // 4))
+                            record_usage(_email, tok)
+                        except Exception:
+                            pass
 
                 # Forward the upstream content-type if present
                 upstream_ct = http_resp.headers.get("content-type", "text/event-stream")
@@ -1344,15 +1894,112 @@ async def chat_completions(request: Request):
             else:
                 data = result["data"]
                 data["model"] = requested_model
+                try:
+                    _u = data.get("usage") or {}
+                    _tok = int(_u.get("total_tokens", 0) or 0)
+                    if _tok <= 0:
+                        _out = 0
+                        for _ch in (data.get("choices") or []):
+                            _m = _ch.get("message") or {}
+                            if isinstance(_m.get("content"), str):
+                                _out += len(_m["content"])
+                        _tok = estimate_prompt_tokens(body) + max(1, _out // 4)
+                    record_usage(user_email, _tok)
+                except Exception:
+                    pass
                 return JSONResponse(
                     content=data,
                     headers={"X-Gateway-Provider": pid, "X-Model-Tier": tier},
                 )
 
-    raise HTTPException(status_code=503, detail=f"All providers failed for '{requested_model}'")
+    logger.warning(f"All providers failed for '{requested_model}'")
+    return providers_busy_response(requested_model, stream)
 
 
 # ── User Subscription Routes ────────────────────────────────────────────────
+
+@app.get("/api/usage")
+async def api_usage(request: Request, email: str = ""):
+    """A user's usage + limits: 4h messages, 7d messages, monthly tokens."""
+    user_email = (email or get_user_email(request)).strip().lower()
+    lim = get_user_limits(user_email)
+    _, m4, r4 = usage_in_window(user_email, WINDOW_4H)
+    _, m7, r7 = usage_in_window(user_email, WINDOW_7D)
+    t30, _, r30 = usage_in_window(user_email, WINDOW_30D)
+    return {
+        "email": user_email,
+        "tier": lim["tier"],
+        "package": lim["package"],
+        "extra_credits": lim.get("extra_credits", 0),
+        "limits": [
+            {"key": "session", "label": "Current session", "unit": "messages",
+             "window": "4 hours", "used": m4, "limit": lim["msg_4h"], "resets_in_seconds": r4},
+            {"key": "weekly_messages", "label": "Weekly messages", "unit": "messages",
+             "window": "7 days", "used": m7, "limit": lim["msg_7d"], "resets_in_seconds": r7},
+            {"key": "monthly_tokens", "label": "Monthly tokens", "unit": "tokens",
+             "window": "30 days", "used": t30, "limit": lim["token_month"], "resets_in_seconds": r30},
+        ],
+    }
+
+
+@app.post("/api/artifacts/share")
+async def share_artifact(request: Request):
+    """Store a preview artifact (HTML/SVG) and return a public share id."""
+    body = await request.json()
+    content = body.get("content", "")
+    ctype = (body.get("type") or "html").lower()
+    if not content or len(content) > 5_000_000:
+        raise HTTPException(status_code=400, detail="Invalid or too large content")
+    sid = uuid.uuid4().hex[:12]
+    shared_artifacts[sid] = {
+        "content": content,
+        "type": "svg" if ctype == "svg" else "html",
+        "created": int(time.time()),
+        "email": get_user_email(request),
+    }
+    try:
+        save_artifacts()
+    except Exception as e:
+        logger.warning(f"save_artifacts failed: {e}")
+    # Prefer a branded base (set PREVIEW_BASE_URL env, e.g. https://preview.claudesk.pro),
+    # otherwise fall back to whatever host the request came in on.
+    base = (os.getenv("PREVIEW_BASE_URL", "") or "").strip().rstrip("/") or str(request.base_url).rstrip("/")
+    return {"id": sid, "path": f"/s/{sid}", "url": f"{base}/s/{sid}"}
+
+
+ARTIFACT_BADGE = (
+    '<div style="position:fixed;bottom:12px;right:12px;z-index:2147483647;'
+    'font-family:system-ui,-apple-system,sans-serif;pointer-events:auto">'
+    '<a href="https://claudesk.pro" target="_blank" rel="noopener" '
+    'style="display:inline-flex;align-items:center;gap:6px;background:#1a1a1a;color:#fff;'
+    'text-decoration:none;font-size:12px;font-weight:600;padding:6px 12px;border-radius:9999px;'
+    'box-shadow:0 2px 10px rgba(0,0,0,.25);line-height:1">Made with Claudesk</a></div>'
+)
+
+
+def _inject_badge(html: str) -> str:
+    low = html.lower()
+    idx = low.rfind("</body>")
+    if idx != -1:
+        return html[:idx] + ARTIFACT_BADGE + html[idx:]
+    return html + ARTIFACT_BADGE
+
+
+@app.get("/s/{sid}")
+async def view_shared_artifact(sid: str):
+    """Render a shared artifact as a standalone public page (with a Made with Claudesk badge)."""
+    art = shared_artifacts.get(sid)
+    if not art:
+        return HTMLResponse("<!doctype html><html><body style='font-family:sans-serif;padding:2rem'>This shared preview was not found or has expired.</body></html>", status_code=404)
+    content = art.get("content", "")
+    if art.get("type") == "svg":
+        html = ("<!doctype html><html><head><meta charset='utf-8'>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                "<style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}</style>"
+                f"</head><body>{content}</body></html>")
+        return HTMLResponse(_inject_badge(html))
+    return HTMLResponse(_inject_badge(content))
+
 
 @app.get("/api/packages")
 async def list_packages():
@@ -1575,6 +2222,41 @@ async def admin_get_config(request: Request):
     }
 
 
+@app.get("/admin/export")
+async def admin_export(request: Request):
+    """Dump every JSON data file in DATA_DIR so it can be migrated to another server."""
+    check_admin(request)
+    import glob
+    files = {}
+    for path in sorted(glob.glob(os.path.join(DATA_DIR, "*.json"))):
+        try:
+            with open(path, "r") as f:
+                files[os.path.basename(path)] = json.load(f)
+        except Exception as e:
+            logger.warning(f"export: could not read {path}: {e}")
+    return {"data_dir": DATA_DIR, "count": len(files), "files": files}
+
+
+@app.post("/admin/import")
+async def admin_import(request: Request):
+    """Restore data files produced by /admin/export, then reload state in memory."""
+    check_admin(request)
+    body = await request.json()
+    files = body.get("files", {})
+    if not isinstance(files, dict):
+        raise HTTPException(status_code=400, detail="Body must be {\"files\": {name: content}}")
+    written = []
+    for name, content in files.items():
+        if (not name.endswith(".json")) or ("/" in name) or ("\\" in name) or name.startswith("."):
+            continue
+        with open(os.path.join(DATA_DIR, name), "w") as f:
+            json.dump(content, f, indent=2)
+        written.append(name)
+    load_all()
+    return {"imported": written, "providers": len(providers), "models": len(facade_models),
+            "packages": len(packages), "coupons": len(coupons), "subscriptions": len(subscriptions)}
+
+
 @app.get("/admin/providers")
 async def admin_list_providers(request: Request):
     check_admin(request)
@@ -1623,7 +2305,11 @@ async def admin_update_provider(provider_id: str, request: Request):
     prov = providers[provider_id]
     if "name" in body: prov["name"] = body["name"]
     if "base_url" in body: prov["base_url"] = body["base_url"]
-    if "api_keys" in body: prov["api_keys"] = _split_keys(body["api_keys"])
+    if "api_keys" in body:
+        prov["api_keys"] = _split_keys(body["api_keys"])
+    if "endpoints" in body:
+        eps = body["endpoints"]
+        prov["endpoints"] = eps if isinstance(eps, list) else []
     save_providers()
     logger.info(f"Admin updated provider: {provider_id}")
     return {"status": "updated", "provider": provider_id}
@@ -1650,7 +2336,12 @@ async def admin_reset_provider(provider_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
     mark_success(provider_id)
     key_index[provider_id] = 0
-    return {"status": "reset", "provider": provider_id}
+    # Also clear per-model and per-key cooldowns so the provider fully unsticks
+    for k in [k for k in list(model_failures) if k.startswith(f"{provider_id}/")]:
+        model_failures.pop(k, None)
+    for k in [k for k in list(key_status) if k.startswith(f"{provider_id}#")]:
+        key_status.pop(k, None)
+    return {"status": "reset", "provider": provider_id, "cleared": "provider + model + key cooldowns"}
 
 
 @app.get("/admin/providers/{provider_id}/models")
@@ -1698,10 +2389,13 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
 
             # Inject tier info into each model from provider_model_tiers
             tiers = provider_model_tiers.get(provider_id, {})
-            # Also check LLM7-style tier field from API response
+            _default_tier = prov.get("default_tier")
             for m in data.get("data", []):
                 mid = m.get("id", "")
-                if mid in tiers:
+                if _default_tier:
+                    m["tier"] = _default_tier
+                    tiers[mid] = _default_tier
+                elif mid in tiers:
                     m["tier"] = tiers[mid]
                 elif m.get("tier"):
                     # Map LLM7 tier names: turbo=free, pro=paid
@@ -1710,7 +2404,6 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
                         m["tier"] = "free"
                     elif api_tier == "pro":
                         m["tier"] = "paid"
-                    # Save discovered tiers
                     tiers[mid] = m["tier"]
             if tiers:
                 provider_model_tiers[provider_id] = tiers
@@ -1722,8 +2415,9 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
         cached = provider_models_cache.get(provider_id, [])
         if cached:
             tiers = provider_model_tiers.get(provider_id, {})
+            _dt = prov.get("default_tier")
             return {"object": "list", "data": [
-                {"id": mid, "object": "model", "created": 1700000000, "owned_by": provider_id, "tier": tiers.get(mid)}
+                {"id": mid, "object": "model", "created": 1700000000, "owned_by": provider_id, "tier": (_dt or tiers.get(mid))}
                 for mid in cached
             ]}
         raise HTTPException(status_code=502, detail=f"Failed to fetch models from {base_url}: {str(e)}")
@@ -1909,6 +2603,9 @@ async def admin_create_package(request: Request):
         "features": body.get("features", []),
         "active": body.get("active", True),
         "order": body.get("order", len(packages)),
+        "token_limit_month": int(body.get("token_limit_month", 0) or 0),
+        "msg_limit_4h": int(body.get("msg_limit_4h", 0) or 0),
+        "msg_limit_7d": int(body.get("msg_limit_7d", 0) or 0),
     }
     save_packages()
     return {"status": "created", "package": packages[pkg_id]}
@@ -1922,10 +2619,12 @@ async def admin_update_package(package_id: str, request: Request):
 
     body = await request.json()
     pkg = packages[package_id]
-    for key in ["name", "tier", "description", "models", "price_monthly", "price_yearly", "features", "active", "order"]:
+    for key in ["name", "tier", "description", "models", "price_monthly", "price_yearly", "features", "active", "order", "token_limit_month", "msg_limit_4h", "msg_limit_7d"]:
         if key in body:
             if key in ("price_monthly", "price_yearly"):
                 pkg[key] = float(body[key])
+            elif key in ("token_limit_month", "msg_limit_4h", "msg_limit_7d"):
+                pkg[key] = int(body[key] or 0)
             else:
                 pkg[key] = body[key]
     save_packages()
@@ -2181,6 +2880,49 @@ async def admin_grant_subscription(user_email: str, request: Request):
     return {"status": "granted", "email": user_email, "package": pkg["name"], "expires_at": expires_at}
 
 
+@app.get("/admin/credits")
+async def admin_list_credits(request: Request):
+    check_admin(request)
+    return {"credits": credits}
+
+
+@app.post("/admin/credits/{user_email}")
+async def admin_set_credits(user_email: str, request: Request):
+    """Set or add bonus monthly-token credits for a user. Body: {credits: N} to set, {add: N} to increment."""
+    check_admin(request)
+    email = user_email.strip().lower()
+    body = await request.json()
+    if "add" in body:
+        credits[email] = get_user_credits(email) + int(body.get("add", 0) or 0)
+    else:
+        credits[email] = int(body.get("credits", 0) or 0)
+    if credits[email] <= 0:
+        credits.pop(email, None)
+    save_credits()
+    return {"status": "ok", "email": email, "credits": credits.get(email, 0)}
+
+
+@app.post("/admin/usage/{user_email}/reset")
+async def admin_reset_usage(user_email: str, request: Request):
+    """Clear a single user's recorded usage (messages + tokens)."""
+    check_admin(request)
+    email = user_email.strip().lower()
+    existed = email in usage_log
+    usage_log.pop(email, None)
+    save_usage()
+    return {"status": "reset", "email": email, "existed": existed}
+
+
+@app.post("/admin/usage/reset-all")
+async def admin_reset_all_usage(request: Request):
+    """Clear ALL recorded usage (use to wipe inflated data from the old counter)."""
+    check_admin(request)
+    n = len(usage_log)
+    usage_log.clear()
+    save_usage()
+    return {"status": "reset-all", "cleared_users": n}
+
+
 @app.delete("/admin/subscriptions/{user_email}")
 async def admin_revoke_subscription(user_email: str, request: Request):
     check_admin(request)
@@ -2274,13 +3016,14 @@ async def admin_test_model(request: Request):
     for backend in expanded[:5]:  # Test first 5 only
         pid = backend["provider"]
         bmodel = backend["model"]
-        result = await try_provider(pid, bmodel, test_body, stream=False)
+        errs = []
+        result = await try_provider(pid, bmodel, test_body, stream=False, errors=errs)
         if result is not None:
             data = result.get("data", {})
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             results.append({"provider": pid, "model": bmodel, "status": "ok", "response": content})
         else:
-            results.append({"provider": pid, "model": bmodel, "status": "failed"})
+            results.append({"provider": pid, "model": bmodel, "status": "failed", "errors": errs})
 
     return {"facade_model": model_id, "backends_tested": len(results), "results": results}
 
@@ -2290,6 +3033,7 @@ DEFAULT_TEST_MODELS = {
     "llm7": "codestral-latest",
     "zai": "glm-4.5-flash",
     "freellmapi": "auto",
+    "cloudflare": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
 }
 
 
@@ -2390,6 +3134,97 @@ async def admin_test_providers(request: Request):
 
     all_ok = bool(results) and all(v.get("ok") for v in results.values())
     return {"ok": all_ok, "saved": saved, "results": results}
+
+
+@app.post("/admin/test-models")
+async def admin_test_models(request: Request):
+    """Test every model in a provider's list with a tiny chat completion, so the
+    admin can see which models actually work as facade backends.
+
+    Body (all optional):
+      {"provider": "<pid>"}            test one provider
+      {"providers": ["llm7","zai"]}    test several
+      (none)                            test all configured providers
+      {"limit": N}                     cap models per provider
+      {"concurrency": N}               parallel requests (default 6)
+    Returns per-model ok/status/latency/error.
+    """
+    check_admin(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if body.get("provider"):
+        pids = [body["provider"]]
+    elif body.get("providers"):
+        pids = list(body["providers"])
+    else:
+        pids = list(providers.keys())
+    limit = int(body.get("limit", 0) or 0)
+    max_tokens = int(body.get("max_tokens", 5) or 5)
+    sem = asyncio.Semaphore(int(body.get("concurrency", 6) or 6))
+
+    async def test_one(base_url, api_key, model):
+        async with sem:
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": "Reply with just: OK"}],
+                "max_tokens": max_tokens,
+                "stream": False,
+            }
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+            entry = {}
+            try:
+                t0 = time.time()
+                async with httpx.AsyncClient(timeout=25) as client:
+                    r = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+                entry["status"] = r.status_code
+                entry["latency_ms"] = int((time.time() - t0) * 1000)
+                entry["ok"] = r.status_code == 200
+                if r.status_code != 200:
+                    try:
+                        j = r.json()
+                        if isinstance(j.get("error"), dict):
+                            entry["error"] = j["error"].get("message", "")[:160]
+                        elif j.get("errors"):
+                            entry["error"] = str(j["errors"])[:160]
+                        else:
+                            entry["error"] = str(j)[:160]
+                    except Exception:
+                        entry["error"] = r.text[:160]
+            except Exception as e:
+                entry["ok"] = False
+                entry["error"] = f"{type(e).__name__}: {e}"
+            return entry
+
+    result = {}
+    for pid in pids:
+        prov = providers.get(pid, {})
+        base_url = resolve_env(prov.get("base_url", "")).rstrip("/")
+        keys = prov.get("api_keys", [])
+        api_key = keys[0] if keys else ""
+        models = provider_models_cache.get(pid, [])
+        if limit > 0:
+            models = models[:limit]
+        if not base_url or not api_key:
+            result[pid] = {"error": "no base_url or api_key configured", "models": {}}
+            continue
+        if not models:
+            result[pid] = {"error": "no models cached (sync models first)", "models": {}}
+            continue
+        entries = await asyncio.gather(*[test_one(base_url, api_key, m) for m in models])
+        model_map = dict(zip(models, entries))
+        ok_count = sum(1 for e in entries if e.get("ok"))
+        result[pid] = {
+            "total": len(models),
+            "ok": ok_count,
+            "failed": len(models) - ok_count,
+            "working_models": [m for m, e in model_map.items() if e.get("ok")],
+            "models": model_map,
+        }
+        logger.info(f"test-models {pid}: {ok_count}/{len(models)} working")
+
+    return {"results": result}
 
 
 
