@@ -29,6 +29,11 @@
       "name": "ZenMux",
       "base_url": "https://zenmux.ai/api/v1",
       "api_key": "${ZENMUX_API_KEYS}"
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": "${OPENROUTER_API_KEYS}"
     }
   },
   "facade_models": [
