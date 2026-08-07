@@ -113,9 +113,9 @@
 		},
 		zenmux: {
 			name: 'ZenMux',
-			base_url: '',
-			description: 'Multi-provider router.',
-			docs_url: '',
+			base_url: 'https://zenmux.ai/api/v1',
+			description: 'OpenAI-compatible multi-provider router. Add multiple API keys — requests automatically fall back to the next key on failure. Free models include deepseek-v4-flash-free and glm-4.7-flash-free.',
+			docs_url: 'https://docs.zenmux.ai',
 			icon: '☁'
 		}
 	};
