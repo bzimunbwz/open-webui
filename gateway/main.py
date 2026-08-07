@@ -506,6 +506,18 @@ def load_enabled_models():
         logger.info(f"Loaded enabled models for {len(enabled_models)} providers")
     except FileNotFoundError:
         enabled_models = {}
+        # Seed per-provider model allowlists from config.json ("enabled_models": [...])
+        # so a fresh install only exposes the models the operator chose.
+        try:
+            with open(CONFIG_PATH) as f:
+                cfg = json.loads(resolve_env(f.read()))
+            for pid, prov_cfg in cfg.get("providers", {}).items():
+                if prov_cfg.get("enabled_models"):
+                    enabled_models[pid] = list(prov_cfg["enabled_models"])
+            if enabled_models:
+                logger.info(f"Seeded enabled-model allowlists from config.json: {list(enabled_models)}")
+        except FileNotFoundError:
+            pass
 
 
 def save_enabled_models():
