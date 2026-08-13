@@ -29,6 +29,12 @@
       "name": "ZenMux",
       "base_url": "https://zenmux.ai/api/v1",
       "api_key": "${ZENMUX_API_KEYS}"
+    },
+    "postman": {
+      "name": "Postman Agent Mode",
+      "kind": "postman",
+      "base_url": "https://5o6ew8jo1ed-1770804.postman.co/_gw",
+      "api_key": "${POSTMAN_COOKIES}"
     }
   },
   "facade_models": [

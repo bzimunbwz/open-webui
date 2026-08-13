@@ -66,6 +66,21 @@ ARTIFACTS_PATH = os.path.join(DATA_DIR, "shared_artifacts.json")
 ADMIN_API_KEY = os.getenv("GATEWAY_ADMIN_KEY", "sk-gateway-admin")
 DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "8192") or 8192)  # floor for output when client omits max_tokens
 
+# ── Postman Agent Mode (internal /_gw API) defaults ────────────────────────
+# Reverse-engineered from the web app (go.postman.co): the team subdomain
+# serves the agent gateway at https://<team-domain>.postman.co/_gw. Chat is
+# POST /_gw/chat (SSE), the model catalog is GET /_gw/config?platform=WEB.
+# The app-version-pinned hashes below are REQUIRED by the gateway (empty
+# values short-circuit the stream). Re-capture from a live request / app
+# bundle when the app version bumps (see POSTMAN-AI-AGENT-API-DOC.md §9).
+POSTMAN_DEFAULT_BASE = os.getenv("POSTMAN_BASE_URL", "https://5o6ew8jo1ed-1770804.postman.co/_gw")
+POSTMAN_DEFAULT_WORKSPACE = os.getenv("POSTMAN_WORKSPACE_ID", "605ffc1c-5bf0-4c90-8333-d68397e4cb1c")
+POSTMAN_DEFAULT_USER = os.getenv("POSTMAN_USER_ID", "57368838")
+POSTMAN_DEFAULT_DOMAIN = os.getenv("POSTMAN_USER_DOMAIN", "aigits.wiki")
+POSTMAN_APP_VERSION = "12.23.1-260811-0231"
+POSTMAN_TOOLS_HASH = "clienttools-workspace_v12-browser-12.23.1-260811-0231-b6c39e840162"
+POSTMAN_KB_HASH = "kbterms-workspace_v12-browser-12.23.1-260811-0231-7c8bd65f52ba"
+
 # Runtime state
 providers: dict = {}
 facade_models: dict = {}
@@ -94,22 +109,36 @@ def resolve_env(raw: str) -> str:
     return re.sub(r'\$\{(\w+)\}', lambda m: os.getenv(m.group(1), ""), raw)
 
 
-def _split_keys(raw) -> list:
+def _split_keys(raw, newline_only: bool = False) -> list:
     """Bulk API-key entry: accepts a list of keys, or one string containing
     several keys separated by newlines, commas, semicolons or whitespace.
     Returns a de-duplicated, cleaned list — enables pasting a whole block of
-    keys at once (config env var or admin panel textarea)."""
+    keys at once (config env var or admin panel textarea).
+
+    With `newline_only=True` the value is split on newlines ONLY. Used for
+    providers whose "keys" contain separators themselves — e.g. Postman
+    Agent Mode session cookies (``postman.sid=…; _pmt=…``), where one full
+    Cookie string per line must stay intact for multi-account fallback."""
     if raw is None:
         return []
     if isinstance(raw, str):
         raw = [raw]
     keys = []
     for item in raw:
-        for k in re.split(r"[\s,;]+", str(item)):
+        parts = str(item).splitlines() if newline_only else re.split(r"[\s,;]+", str(item))
+        for k in parts:
             k = k.strip()
             if k and k not in keys:
                 keys.append(k)
     return keys
+
+
+def _split_cookies(raw) -> list:
+    """Postman Agent Mode session cookies: one full Cookie string per line
+    (each contains '; ' separators, so the generic key splitter would mangle
+    them). Each entry is a complete credential set (postman.sid + _pmt …)
+    that can be rotated/fall back independently."""
+    return _split_keys(raw, newline_only=True)
 
 
 # ── Load / Save ────────────────────────────────────────────────────────────
@@ -148,8 +177,12 @@ def load_providers():
                 providers[pid] = {
                     "name": p.get("name", pid),
                     "base_url": p.get("base_url", ""),
-                    "api_keys": _split_keys(p.get("api_keys") or p.get("api_key")),
+                    "api_keys": (_split_cookies if p.get("kind") == "postman" else _split_keys)(p.get("api_keys") or p.get("api_key")),
                 }
+                for k in ("kind", "workspace_id", "workspace_name", "user_id", "user_domain",
+                          "app_version", "native_tools_hash", "kb_terms_hash", "default_tier"):
+                    if p.get(k):
+                        providers[pid][k] = p[k]
             logger.info(f"Loaded {len(providers)} providers from config.json")
         except FileNotFoundError:
             providers = {}
@@ -611,7 +644,12 @@ def list_endpoints(pid: str):
     {base_url|account_id, api_key}. If base_url contains the placeholder
     `{account_id}` it is a TEMPLATE: each account's id is substituted in, so
     rotation auto-fills the account id and can fall back across accounts (which
-    dodges a per-account quota)."""
+    dodges a per-account quota).
+
+    Postman Agent Mode (kind == "postman"): each api_keys entry is a full
+    session Cookie string (postman.sid=…; _pmt=…). One cookie = one account,
+    so rotation falls back across sessions/cookies exactly like API keys.
+    Endpoint entries may carry `api_key` = cookie as well."""
     prov = providers.get(pid, {})
     base = prov.get("base_url", "")
     aks = prov.get("api_keys", [])
@@ -620,6 +658,18 @@ def list_endpoints(pid: str):
         prov["api_keys"] = aks
     base_tpl = "{account_id}" in base
     eps = []
+    if prov.get("kind") == "postman":
+        # Every entry is a cookie string used verbatim as the Cookie header.
+        for k in aks:
+            if k and base:
+                eps.append((base, k))
+        for ep in (prov.get("endpoints") or []):
+            ck = ep.get("api_key", "") or ep.get("cookie", "")
+            if ck and base:
+                eps.append((base, ck))
+        if not eps and base:
+            eps.append((base, ""))
+        return eps
     for k in aks:
         if base and not base_tpl:  # a plain key needs a concrete base_url
             eps.append((base, k))
@@ -727,7 +777,238 @@ def is_model_available(pid: str, model: str) -> bool:
 RETRYABLE = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 
 
+# ── Postman Agent Mode transport ────────────────────────────────────────────
+# Internal gateway on the team subdomain (https://<team>.postman.co/_gw).
+# Unlike OpenAI-compatible providers, /_gw/chat takes the whole conversation
+# as one `query` string and streams Postman-flavoured SSE events:
+#   {"eventType":"usage"|"streamingFormat"|"conversation"|"textChunk"|"info",
+#    "data": {...}} — text lives in data.textContent; "info" id
+#   "llm-call-stream-end" marks the end of the LLM round; the stream ends with
+#   "data: [DONE]". Auth is the browser session Cookie (postman.sid …), NOT a
+#   Bearer key — PMAK keys get 401. Each configured cookie string is one
+#   independent session, so pasting several enables account-level fallback.
+
+def _postman_build_body(body: dict, backend_model: str, prov: dict) -> dict:
+    """Convert an OpenAI chat body into the Postman /_gw/chat payload."""
+    msgs = body.get("messages") or []
+    transcript = []
+    for m in msgs:
+        role = (m.get("role") or "user").lower()
+        content = m.get("content")
+        if isinstance(content, list):  # multimodal parts → keep text only
+            content = " ".join(
+                p.get("text", "") for p in content
+                if isinstance(p, dict) and p.get("type") == "text"
+            )
+        content = (content or "").strip()
+        if not content:
+            continue
+        label = {"system": "System", "user": "User", "assistant": "Assistant"}.get(role, "User")
+        transcript.append(f"{label}: {content}")
+    query = "\n\n".join(transcript) if transcript else "Hello"
+    workspace_id = prov.get("workspace_id") or POSTMAN_DEFAULT_WORKSPACE
+    user_id = prov.get("user_id") or POSTMAN_DEFAULT_USER
+    return {
+        "input": {
+            "chatType": "USER_QUERY",
+            "query": query,
+            "toolResponse": "",
+            "useCase": None,
+            "conversationId": None,
+            "agent": None,
+            "product": "workspace_v12",
+        },
+        "platform": "WEB",
+        "clientTools": {
+            "nativeToolsHash": prov.get("native_tools_hash") or POSTMAN_TOOLS_HASH,
+            "excludedTools": ["getWebhookScripts", "updateWebhookBeforeRequestScript",
+                              "updateWebhookAfterResponseScript", "askUser"],
+            "thirdParty": {},
+        },
+        "clientKBTerms": {
+            "nativeTermsHash": prov.get("kb_terms_hash") or POSTMAN_KB_HASH,
+            "excludedKBTerms": [],
+        },
+        "mandatoryContext": {"workspaceId": workspace_id},
+        "selectedContext": [],
+        "backgroundContext": [
+            {"type": "ACTIVE_ENVIRONMENT", "value": None},
+            {"type": "ACTIVE_WORKSPACE", "value": {
+                "name": prov.get("workspace_name") or "Workspace",
+                "id": workspace_id,
+                "filePath": f"/browser-workspaces/{user_id}/{workspace_id}",
+            }},
+            {"type": "TAB_LIST", "value": []},
+            {"type": "VARIABLES_IN_SCOPE", "value": []},
+            {"type": "ENVIRONMENT_LIST", "value": []},
+            {"type": "COLLECTION_LIST", "value": []},
+            {"type": "USER_METADATA", "value": {
+                "domain": prov.get("user_domain") or POSTMAN_DEFAULT_DOMAIN,
+                "createdAt": None, "teamIntent": None,
+            }},
+            {"type": "FILE_VIEWER_FOLDER", "value": {
+                "path": None, "isOpen": False, "platform": "browser",
+                "description": "No folder is currently opened in the file viewer.",
+                "projectOverview": None,
+            }},
+        ],
+        "availableSkills": [],
+        "devModeOptions": {
+            "selectedModel": backend_model,
+            "isParallelToolCallingSupported": True,
+            "autoRun": False,
+            "supportsAskUser": False,
+            "supportsActionRecommendations": True,
+            "useThinkingModeIfAvailable": False,
+            "thinkingLevel": None,
+            "isLoopApprovalEnabled": True,
+            "enableWebAccess": False,
+        },
+    }
+
+
+def _postman_event_text(obj: dict, state: dict):
+    """Map one Postman SSE event → text content (or None to skip).
+
+    `state` carries "ended" (llm-call-stream-end seen → drop trailing
+    separator chunks) and "done" (data: [DONE] seen)."""
+    kind = obj.get("eventType")
+    data = obj.get("data") or {}
+    if kind == "textChunk":
+        if (data.get("metadata") or {}).get("id") == "switch-agent-separator":
+            return None
+        if state.get("ended"):
+            return None
+        return data.get("textContent") or None
+    if kind == "info" and (data.get("metadata") or {}).get("id") == "llm-call-stream-end":
+        state["ended"] = True
+        return None
+    return None  # usage / streamingFormat / conversation / recommendNextActionsChunk
+
+
+async def _postman_collect(resp) -> str:
+    """Read a Postman SSE stream to completion and join the answer text."""
+    parser = _SSEParser()
+    state: dict = {}
+    out = []
+    async for raw in resp.aiter_bytes(4096):
+        for ev in parser.feed(raw):
+            if ev == b"[DONE]":
+                state["done"] = True
+                continue
+            try:
+                obj = json.loads(ev)
+            except Exception:
+                continue
+            text = _postman_event_text(obj, state)
+            if text:
+                out.append(text)
+    return "".join(out)
+
+
+async def _try_postman(pid: str, backend_model: str, body: dict, stream: bool,
+                       timeout: float = 120.0, errors=None):
+    """Call Postman Agent Mode /_gw/chat with one session cookie, rotating to
+    the next cookie on 401/403 (expired session) and 429 (rate limit) — the
+    same fallback semantics as API-key providers."""
+    def note(reason, status=None):
+        if errors is not None:
+            errors.append({"provider": pid, "model": backend_model, "status": status, "error": str(reason)[:200]})
+
+    prov = providers.get(pid, {})
+    base = prov.get("base_url", "").rstrip("/")
+    if not base:
+        note("provider has no base_url"); return None
+    if not is_available(pid):
+        note("provider in cooldown"); return None
+    if not is_model_available(pid, backend_model):
+        note("model in per-model cooldown (recent failures)"); return None
+
+    eps = list_endpoints(pid)
+    if not eps:
+        note("no session cookies configured — paste full Cookie strings "
+             "(postman.sid=…; _pmt=…), one per line"); return None
+    attempts = len(eps)
+    last = "no usable session cookie"
+
+    for _ in range(attempts):
+        sel = next_endpoint(pid)
+        if sel is None:
+            break
+        base_url, cookie = sel
+        headers = {
+            "Content-Type": "application/json",
+            "x-pstmn-req-service": "agent-mode-service",
+            "x-app-version": prov.get("app_version") or POSTMAN_APP_VERSION,
+            "Cookie": cookie,
+        }
+        payload = _postman_build_body(body, backend_model, prov)
+        url = base_url.rstrip("/") + "/chat"
+        client = httpx.AsyncClient(timeout=httpx.Timeout(connect=15.0, read=None, write=15.0, pool=15.0))
+        try:
+            req = client.build_request("POST", url, json=payload, headers=headers)
+            resp = await client.send(req, stream=True)
+            sc = resp.status_code
+            if sc in (401, 403, 429):
+                await resp.aclose(); await client.aclose()
+                mark_endpoint_failed(pid, base_url, cookie)
+                last = f"HTTP {sc} (session invalid/rate-limited - rotating to next cookie)"
+                continue
+            if sc in RETRYABLE:
+                await resp.aclose(); await client.aclose()
+                mark_model_failure(pid, backend_model); mark_failure(pid)
+                last = f"HTTP {sc} (server error)"; continue
+            if sc >= 400:
+                txt = ""
+                try:
+                    await resp.aread(); txt = resp.text[:200]
+                except Exception:
+                    pass
+                await resp.aclose(); await client.aclose()
+                mark_model_failure(pid, backend_model)
+                note(txt or f"HTTP {sc}", sc); return None
+
+            if not stream:
+                text = await _postman_collect(resp)
+                await resp.aclose(); await client.aclose()
+                if not text:
+                    mark_model_failure(pid, backend_model)
+                    last = "empty completion"; continue
+                mark_success(pid); mark_model_success(pid, backend_model)
+                created = int(time.time())
+                data = {
+                    "id": "chatcmpl-" + uuid.uuid4().hex[:24],
+                    "object": "chat.completion",
+                    "created": created,
+                    "model": backend_model,
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
+                                 "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": estimate_prompt_tokens(body),
+                              "completion_tokens": max(1, len(text) // 4),
+                              "total_tokens": estimate_prompt_tokens(body) + max(1, len(text) // 4)},
+                }
+                return {"data": data, "stream": False}
+
+            mark_success(pid); mark_model_success(pid, backend_model)
+            return {"client": client, "resp": resp, "stream": True, "raw_sse": "postman"}
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
+            await client.aclose()
+            mark_model_failure(pid, backend_model)
+            last = f"{type(e).__name__}"; continue
+        except Exception as e:
+            await client.aclose()
+            mark_model_failure(pid, backend_model)
+            last = f"{type(e).__name__}: {e}"; continue
+
+    note(last)
+    return None
+
+
 async def try_provider(pid: str, backend_model: str, body: dict, stream: bool, timeout: float = 120.0, errors=None):
+    _p = providers.get(pid)
+    if _p and _p.get("kind") == "postman":
+        return await _try_postman(pid, backend_model, body, stream=stream, timeout=timeout, errors=errors)
+
     def note(reason, status=None):
         if errors is not None:
             errors.append({"provider": pid, "model": backend_model, "status": status, "error": str(reason)[:200]})
@@ -1047,6 +1328,8 @@ def _stream_with_failover(requested_model, tier, body, backends, user_email, est
                 pid, bmodel, result = picked
                 resp = result["resp"]
                 client = result["client"]
+                pm_mode = result.get("raw_sse") == "postman"
+                pm_state: dict = {} if pm_mode else None
                 parser = _SSEParser()
                 round_text = ""
                 finish_reason = None
@@ -1071,11 +1354,28 @@ def _stream_with_failover(requested_model, tier, body, backends, user_email, est
                     async for raw in resp.aiter_bytes(4096):
                         for ev in parser.feed(raw):
                             if ev == b"[DONE]":
+                                if pm_mode:
+                                    pm_state["done"] = True
                                 continue
                             try:
                                 obj = json.loads(ev)
                             except Exception:
                                 continue
+
+                            # Postman Agent Mode SSE: convert each event to the
+                            # OpenAI chunk shape the relay below understands.
+                            if pm_mode:
+                                if obj.get("eventType") == "textChunk" and not pm_state.get("ended"):
+                                    txt = (obj.get("data") or {}).get("textContent")
+                                    if not txt:
+                                        continue
+                                    obj = {"choices": [{"delta": {"content": txt}}]}
+                                elif obj.get("eventType") == "info" and \
+                                        (obj.get("data") or {}).get("metadata", {}).get("id") == "llm-call-stream-end":
+                                    pm_state["ended"] = True
+                                    continue
+                                else:
+                                    continue
 
                             u = obj.get("usage")
                             if isinstance(u, dict) and u.get("total_tokens"):
@@ -1159,6 +1459,10 @@ def _stream_with_failover(requested_model, tier, body, backends, user_email, est
                     out = flush_pending()
                     if out:
                         yield out
+
+                # Postman streams carry no finish_reason — a clean [DONE] means stop.
+                if pm_mode and finish_reason is None and pm_state.get("done"):
+                    finish_reason = "stop"
 
                 # ── Decide: done, or continue seamlessly? ──
                 if verbatim_tool_mode:
@@ -1507,6 +1811,7 @@ async def startup():
     add_bynara_fallback()
     seed_clod()
     add_clod_fallback()
+    seed_postman()
     # Auto-sync models for all providers that have a base_url and API keys
     await auto_sync_provider_models()
     mark_bynara_models_free()
@@ -1818,6 +2123,133 @@ def seed_zenmux():
     logger.info(f"Seeded {len(ZENMUX_MODELS)} ZenMux free models")
 
 
+def seed_postman():
+    """Ensure the Postman Agent Mode provider + its full model catalog exist.
+
+    Postman Agent Mode is served by an internal gateway on the team subdomain
+    (https://<team>.postman.co/_gw) using the browser session cookie — NOT an
+    OpenAI-compatible endpoint, so the provider carries `kind: "postman"` and
+    the relay uses the dedicated /_gw transport (see _try_postman).
+
+    Catalog (verified live 2026-08-13, Enterprise plan, app 12.23.1):
+    GPT-5.6 Sol/Terra/Luna, GPT-5.5, GPT-5.4, Claude Opus 4.8/4.7/4.5,
+    Claude Sonnet 4.6/4.5, Claude Haiku 4.5. Every model is seeded as its own
+    facade model (`<slug>-postman`) so it shows up in the chat selector like
+    any other provider, and the matching existing facades gain Postman as an
+    extra fallback backend (e.g. claude-opus-4.8 → CLAUDE_OPUS_48_BEDROCK).
+
+    Cookies: paste one full session Cookie string per line
+    (postman.sid=…; _pmt=…; dashboard_beta=yes; _pm.store={…}) — each cookie
+    is one independent account/session, so several of them rotate and fall
+    back like multiple API keys on other providers.
+    """
+    global providers
+
+    base_url = (os.getenv("POSTMAN_BASE_URL", "").strip() or POSTMAN_DEFAULT_BASE).rstrip("/")
+    cookies = os.getenv("POSTMAN_COOKIES", "").strip()
+    if "postman" not in providers:
+        providers["postman"] = {
+            "name": "Postman Agent Mode",
+            "kind": "postman",
+            "base_url": base_url,
+            "api_keys": _split_cookies(cookies),
+            "workspace_id": os.getenv("POSTMAN_WORKSPACE_ID", "").strip() or POSTMAN_DEFAULT_WORKSPACE,
+            "user_id": os.getenv("POSTMAN_USER_ID", "").strip() or POSTMAN_DEFAULT_USER,
+            "user_domain": os.getenv("POSTMAN_USER_DOMAIN", "").strip() or POSTMAN_DEFAULT_DOMAIN,
+            "default_tier": "paid",
+        }
+        provider_status["postman"] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
+        key_index["postman"] = 0
+        save_providers()
+        logger.info("Seeded Postman Agent Mode provider (cookies added via Admin → Providers)")
+    else:
+        changed = False
+        prov = providers["postman"]
+        if prov.get("kind") != "postman":
+            prov["kind"] = "postman"; changed = True
+        if not prov.get("name"):
+            prov["name"] = "Postman Agent Mode"; changed = True
+        if not prov.get("base_url"):
+            prov["base_url"] = base_url; changed = True
+        if not prov.get("workspace_id"):
+            prov["workspace_id"] = POSTMAN_DEFAULT_WORKSPACE; changed = True
+        if not prov.get("default_tier"):
+            prov["default_tier"] = "paid"; changed = True
+        if cookies and not prov.get("api_keys"):
+            prov["api_keys"] = _split_cookies(cookies); changed = True
+        if changed:
+            save_providers()
+
+    # Official model catalog (key → displayName), verified via GET /_gw/config
+    POSTMAN_MODELS = [
+        ("GPT_56_SOL", "GPT-5.6 Sol"),
+        ("GPT_56_TERRA", "GPT-5.6 Terra"),
+        ("GPT_56_LUNA", "GPT-5.6 Luna"),
+        ("GPT_55", "GPT-5.5"),
+        ("GPT_54", "GPT-5.4"),
+        ("CLAUDE_OPUS_48_BEDROCK", "Claude Opus 4.8"),
+        ("CLAUDE_OPUS_47_BEDROCK", "Claude Opus 4.7"),
+        ("CLAUDE_OPUS_45_BEDROCK", "Claude Opus 4.5"),
+        ("CLAUDE_46_SONNET_BEDROCK", "Claude Sonnet 4.6"),
+        ("CLAUDE_45_SONNET_BEDROCK", "Claude Sonnet 4.5"),
+        ("CLAUDE_45_HAIKU_BEDROCK", "Claude Haiku 4.5"),
+    ]
+
+    # Provider-tab catalog + FREE/PAID badges (all consume Postman credits → paid)
+    existing_cache = provider_models_cache.get("postman", [])
+    merged = list(dict.fromkeys(existing_cache + [k for k, _ in POSTMAN_MODELS]))
+    if merged != existing_cache:
+        provider_models_cache["postman"] = merged
+        save_provider_models_cache()
+    prov_tiers = provider_model_tiers.get("postman", {})
+    tiers_changed = False
+    for key, _ in POSTMAN_MODELS:
+        if prov_tiers.get(key) != "paid":
+            prov_tiers[key] = "paid"; tiers_changed = True
+    provider_model_tiers["postman"] = prov_tiers
+    if tiers_changed:
+        save_provider_model_tiers()
+
+    # Facade models — one per catalog entry, id = slug(displayName) + "-postman"
+    def _slug(name: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+    added = 0
+    for key, display in POSTMAN_MODELS:
+        mid = f"{_slug(display)}-postman"
+        if mid not in facade_models and mid not in deleted_models:
+            facade_models[mid] = {
+                "id": mid,
+                "name": f"{display} (Postman)",
+                "tier": "paid",
+                "backends": [{"provider": "postman", "model": key}],
+            }
+            model_tiers[mid] = "paid"
+            added += 1
+    if added:
+        save_models()
+        save_tiers()
+        logger.info(f"Seeded {added} Postman facade models")
+
+    # Extra fallback backends on the existing facades that Postman also serves
+    PM_FALLBACKS = {
+        "claude-opus-4.8": "CLAUDE_OPUS_48_BEDROCK",
+        "claude-opus-4.7": "CLAUDE_OPUS_47_BEDROCK",
+        "claude-sonnet-4.6": "CLAUDE_46_SONNET_BEDROCK",
+    }
+    changed = 0
+    for facade_id, pm_key in PM_FALLBACKS.items():
+        if facade_id in facade_models:
+            backends = facade_models[facade_id].get("backends", [])
+            if not any(b.get("provider") == "postman" for b in backends):
+                backends.append({"provider": "postman", "model": pm_key})
+                facade_models[facade_id]["backends"] = backends
+                changed += 1
+    if changed:
+        save_models()
+        logger.info(f"Added Postman fallback backend to {changed} existing facade models")
+
+
 def seed_provider_catalogs():
     """Populate the admin Provider tab with the full official model list +
     free/paid badge for each provider.
@@ -2041,17 +2473,27 @@ async def auto_sync_provider_models():
         if not base_url:
             continue
         headers = {"Content-Type": "application/json"}
-        if api_keys:
+        if api_keys and prov.get("kind") != "postman":
             headers["Authorization"] = f"Bearer {api_keys[0]}"
+        if prov.get("kind") == "postman":
+            headers["Cookie"] = api_keys[0] if api_keys else ""
+            headers["x-pstmn-req-service"] = "agent-mode-service"
+            headers["x-app-version"] = prov.get("app_version") or POSTMAN_APP_VERSION
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                res = await client.get(f"{base_url}/models", headers=headers)
+                if prov.get("kind") == "postman":
+                    res = await client.get(f"{base_url}/config", params={"platform": "WEB"}, headers=headers)
+                else:
+                    res = await client.get(f"{base_url}/models", headers=headers)
                 if res.status_code == 200:
                     data = res.json()
-                    model_ids = [
-                        m.get("id", "") for m in data.get("data", [])
-                        if m.get("id") and m.get("available", True) is not False
-                    ]
+                    if prov.get("kind") == "postman":
+                        model_ids = [m.get("key", "") for m in data.get("models", []) if m.get("key")]
+                    else:
+                        model_ids = [
+                            m.get("id", "") for m in data.get("data", [])
+                            if m.get("id") and m.get("available", True) is not False
+                        ]
                     if model_ids:
                         provider_models_cache[pid] = model_ids
                         logger.info(f"Auto-synced {len(model_ids)} models for {pid}")
@@ -2696,8 +3138,12 @@ async def admin_create_provider(request: Request):
     providers[pid] = {
         "name": body.get("name", pid),
         "base_url": body.get("base_url", ""),
-        "api_keys": _split_keys(body.get("api_keys", [])),
+        "api_keys": (_split_cookies if body.get("kind") == "postman" else _split_keys)(body.get("api_keys", [])),
     }
+    for k in ("kind", "workspace_id", "workspace_name", "user_id", "user_domain",
+              "app_version", "native_tools_hash", "kb_terms_hash", "default_tier"):
+        if body.get(k):
+            providers[pid][k] = body[k]
     provider_status[pid] = {"failures": 0, "last_failure": 0, "cooldown_until": 0}
     key_index[pid] = 0
     save_providers()
@@ -2716,10 +3162,17 @@ async def admin_update_provider(provider_id: str, request: Request):
     if "name" in body: prov["name"] = body["name"]
     if "base_url" in body: prov["base_url"] = body["base_url"]
     if "api_keys" in body:
-        prov["api_keys"] = _split_keys(body["api_keys"])
+        # Postman providers: each entry is a full session Cookie string —
+        # never split on '; ' / spaces (they're part of the credential).
+        splitter = _split_cookies if (body.get("kind") or prov.get("kind")) == "postman" else _split_keys
+        prov["api_keys"] = splitter(body["api_keys"])
     if "endpoints" in body:
         eps = body["endpoints"]
         prov["endpoints"] = eps if isinstance(eps, list) else []
+    for k in ("kind", "workspace_id", "workspace_name", "user_id", "user_domain",
+              "app_version", "native_tools_hash", "kb_terms_hash", "default_tier"):
+        if body.get(k) is not None:
+            prov[k] = body[k]
     save_providers()
     logger.info(f"Admin updated provider: {provider_id}")
     return {"status": "updated", "provider": provider_id}
@@ -2756,7 +3209,7 @@ async def admin_reset_provider(provider_id: str, request: Request):
 
 @app.get("/admin/providers/{provider_id}/models")
 async def admin_sync_provider_models(provider_id: str, request: Request):
-    """Proxy /models request to a provider (avoids browser CORS issues)."""
+    """Proxy /models (or /_gw/config for Postman) request to a provider (avoids browser CORS issues)."""
     check_admin(request)
     if provider_id not in providers:
         raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
@@ -2766,18 +3219,34 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
         raise HTTPException(status_code=400, detail="Provider has no base_url")
     api_keys = prov.get("api_keys", [])
     headers = {"Content-Type": "application/json"}
-    if api_keys:
+    if api_keys and prov.get("kind") != "postman":
         headers["Authorization"] = f"Bearer {api_keys[0]}"
+    if prov.get("kind") == "postman":
+        headers["Cookie"] = api_keys[0] if api_keys else ""
+        headers["x-pstmn-req-service"] = "agent-mode-service"
+        headers["x-app-version"] = prov.get("app_version") or POSTMAN_APP_VERSION
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            res = await client.get(f"{base_url}/models", headers=headers)
+            if prov.get("kind") == "postman":
+                res = await client.get(f"{base_url}/config", params={"platform": "WEB"}, headers=headers)
+            else:
+                res = await client.get(f"{base_url}/models", headers=headers)
             res.raise_for_status()
             data = res.json()
             # Cache only available model IDs for this provider (used for wildcard backends)
-            model_ids = [
-                m.get("id", "") for m in data.get("data", [])
-                if m.get("id") and m.get("available", True) is not False
-            ]
+            if prov.get("kind") == "postman":
+                model_ids = [m.get("key", "") for m in data.get("models", []) if m.get("key")]
+                # Present the catalog in the OpenAI-ish shape the admin UI renders
+                data = {"data": [
+                    {"id": m["key"], "object": "model", "created": 1700000000,
+                     "owned_by": provider_id, "name": m.get("displayName") or m["key"]}
+                    for m in data.get("models", []) if m.get("key")
+                ]}
+            else:
+                model_ids = [
+                    m.get("id", "") for m in data.get("data", [])
+                    if m.get("id") and m.get("available", True) is not False
+                ]
             if model_ids:
                 # Merge with existing cache (some models like Z.AI free/vision aren't in /models but work)
                 existing = provider_models_cache.get(provider_id, [])

@@ -61,7 +61,7 @@
 	// New provider form
 	let newProvider = {
 		id: '', name: '', base_url: '', api_keys: [''],
-		description: '', docs_url: '', tier: 'free'
+		description: '', docs_url: '', tier: 'free', kind: ''
 	};
 
 	// New facade model form
@@ -122,6 +122,14 @@
 			description: 'OpenAI-compatible multi-provider router. Add multiple API keys — requests automatically fall back to the next key on failure. Free models include deepseek-v4-flash-free and glm-4.7-flash-free.',
 			docs_url: 'https://docs.zenmux.ai',
 			icon: '☁'
+		},
+		postman: {
+			name: 'Postman Agent Mode',
+			kind: 'postman',
+			base_url: 'https://5o6ew8jo1ed-1770804.postman.co/_gw',
+			description: 'Postman Agent Mode internal gateway (/_gw). Auth is the browser session cookie, NOT an API key — paste one full Cookie string per line (postman.sid=…; _pmt=…; …). Multiple cookies = multiple accounts: requests automatically rotate to the next session cookie on failure, exactly like API keys.',
+			docs_url: 'https://learning.postman.com/docs/postman-agent-mode/',
+			icon: '☁'
 		}
 	};
 
@@ -181,6 +189,7 @@
 					base_url: p.base_url || tmpl.base_url || '',
 					api_keys: p.api_keys || [],
 					endpoints: p.endpoints || [],
+					kind: p.kind || tmpl.kind || '',
 					description: tmpl.description || '',
 					docs_url: tmpl.docs_url || '',
 					icon: tmpl.icon || '☁',
@@ -216,6 +225,7 @@
 				base_url: p.base_url,
 				api_keys: p.api_keys.filter((k: string) => k.trim()),
 				endpoints: (p.endpoints || []).filter((e) => (e.account_id || e.base_url) && e.api_key),
+				kind: p.kind || PROVIDER_TEMPLATES[p.id]?.kind || undefined,
 			});
 			toast.success(`${p.name} saved`);
 			await loadAll();
@@ -233,9 +243,10 @@
 				name: newProvider.name,
 				base_url: newProvider.base_url,
 				api_keys: newProvider.api_keys.filter((k: string) => k.trim()),
+				kind: newProvider.kind || PROVIDER_TEMPLATES[newProvider.id]?.kind || undefined,
 			});
 			toast.success(`${newProvider.name} created`);
-			newProvider = { id: '', name: '', base_url: '', api_keys: [''], description: '', docs_url: '', tier: 'free' };
+			newProvider = { id: '', name: '', base_url: '', api_keys: [''], description: '', docs_url: '', tier: 'free', kind: '' };
 			showAddProvider = false;
 			await loadAll();
 		} catch (e: any) { toast.error(e.message); }
@@ -280,7 +291,8 @@
 		freemodel: 'freemodel.dev',
 		llm7: 'llm7.io',
 		zai: 'z.ai',
-		freellmapi: 'codesai.cc'
+		freellmapi: 'codesai.cc',
+		postman: 'postman.co'
 	};
 
 	function providerLogo(provider: any): string {
@@ -502,6 +514,7 @@
 			newProvider.base_url = tmpl.base_url;
 			newProvider.description = tmpl.description;
 			newProvider.docs_url = tmpl.docs_url;
+			newProvider.kind = tmpl.kind || '';
 		}
 	}
 
@@ -656,10 +669,10 @@
 					</div>
 				</div>
 				<div class="mb-3">
-					<label class="text-xs text-gray-500 mb-1 block">API Keys (one per line)</label>
+					<label class="text-xs text-gray-500 mb-1 block">{newProvider.kind === 'postman' ? 'Session cookies (one full Cookie string per line)' : 'API Keys (one per line)'}</label>
 					<textarea
 						bind:value={newProvider.api_keys[0]}
-						placeholder="sk-key-1"
+						placeholder={newProvider.kind === 'postman' ? 'postman.sid=…; _pmt=…' : 'sk-key-1'}
 						rows="2"
 						class="w-full rounded-lg border border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-mono"
 					></textarea>
@@ -732,10 +745,10 @@
 
 								<!-- Bulk keys -->
 								<div>
-									<label class="text-[11px] font-medium text-gray-500 block mb-1">API keys — paste one per line</label>
+									<label class="text-[11px] font-medium text-gray-500 block mb-1">{provider.kind === 'postman' ? 'Session cookies — one full Cookie string per line' : 'API keys — paste one per line'}</label>
 									<div class="flex flex-col gap-1.5">
 										<textarea
-											placeholder="sk-key-1&#10;sk-key-2&#10;sk-key-3"
+											placeholder={provider.kind === 'postman' ? 'postman.sid=…; _pmt=…; _pm.store={…}' : 'sk-key-1&#10;sk-key-2&#10;sk-key-3'}
 											rows="2"
 											bind:value={bulkByProvider[provider.id]}
 											class="w-full rounded-lg border border-gray-600 bg-white dark:bg-gray-900 px-2.5 py-1.5 text-xs font-mono"
@@ -752,7 +765,7 @@
 								<!-- Key list -->
 								{#if provider.api_keys.length > 0}
 									<div class="space-y-1">
-										<label class="text-[11px] font-medium text-gray-500 block">Configured keys ({provider.api_keys.length})</label>
+										<label class="text-[11px] font-medium text-gray-500 block">Configured {provider.kind === 'postman' ? 'sessions' : 'keys'} ({provider.api_keys.length})</label>
 										{#each provider.api_keys as key, i}
 											<div class="flex items-center gap-2 bg-gray-100 dark:bg-gray-800/70 rounded-lg px-2 py-1.5 border border-gray-200 dark:border-gray-700/50">
 												<span class="text-[11px] text-gray-400 font-mono flex-1 truncate">{maskKey(key)}</span>
