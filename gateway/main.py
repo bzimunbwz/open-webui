@@ -1959,6 +1959,7 @@ async def startup():
     seed_clod()
     add_clod_fallback()
     seed_postman()
+    heal_postman_cookies()
     # Auto-sync models for all providers that have a base_url and API keys
     await auto_sync_provider_models()
     mark_bynara_models_free()
@@ -2398,6 +2399,56 @@ def seed_postman():
     if changed:
         save_models()
         logger.info(f"Added Postman fallback backend to {changed} existing facade models")
+
+
+def heal_postman_cookies():
+    """Self-heal the stored Postman session cookies on every startup.
+
+    Two failure modes this repairs automatically:
+
+    1. FRAGMENTED keys — if a Cookie header was saved before the cookie-aware
+       splitter existed, the old generic key-splitter chopped it into pieces at
+       every '; ' (e.g. one entry = just "_cfuvid=…", another = just
+       "postman.sid=…"). A fragment without postman.sid can never authenticate.
+       Any stored entry that lacks ``postman.sid=`` is dropped; entries with it
+       are kept and re-sanitized.
+
+    2. STALE cookie from the UI — when POSTMAN_COOKIES env is set, it is the
+       SOURCE OF TRUTH and replaces whatever was stored (pasted) before, on
+       every boot. Updating the Railway env var + redeploying = rotating the
+       session without touching the admin UI.
+    """
+    prov = providers.get("postman")
+    if not prov or prov.get("kind") != "postman":
+        return
+    changed = False
+
+    env_cookies = os.getenv("POSTMAN_COOKIES", "").strip()
+    if env_cookies:
+        fresh = _split_cookies(env_cookies)
+        if fresh and fresh != prov.get("api_keys"):
+            prov["api_keys"] = fresh
+            changed = True
+            logger.info(f"Postman cookies refreshed from POSTMAN_COOKIES env ({len(fresh)} session(s))")
+    else:
+        stored = prov.get("api_keys") or []
+        good = []
+        for k in stored:
+            if isinstance(k, str) and "postman.sid=" in k:
+                good.append(_sanitize_cookie(k))
+        if len(good) != len(stored):
+            prov["api_keys"] = good
+            changed = True
+            logger.info(
+                f"Postman cookie self-heal: kept {len(good)} valid session(s), "
+                f"dropped {len(stored) - len(good)} fragment(s) without postman.sid"
+            )
+
+    if changed:
+        save_providers()
+        # Clear per-key cooldowns so freshly healed cookies aren't skipped
+        for k in [k for k in list(key_status) if k.startswith("postman#")]:
+            key_status.pop(k, None)
 
 
 def seed_provider_catalogs():
