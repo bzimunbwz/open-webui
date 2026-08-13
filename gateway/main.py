@@ -133,12 +133,34 @@ def _split_keys(raw, newline_only: bool = False) -> list:
     return keys
 
 
+def _sanitize_cookie(cookie: str) -> str:
+    """Strip Cloudflare/analytics tokens from a pasted Cookie header.
+
+    ``_cfuvid`` and ``__cf_bm`` are Cloudflare bot-management cookies bound to
+    the fingerprint of the BROWSER that generated them (TLS/HTTP2 signature).
+    Forwarding them from the gateway's httpx client makes Cloudflare reject the
+    request with ``403 error code: 1010``. The AMP_* cookies are analytics
+    noise. The session-critical cookies are ``postman.sid``, ``_pmt``,
+    ``_pm.store`` and ``dashboard_beta`` — those are NOT fingerprint-bound and
+    work from any client (verified live)."""
+    tokens = [t.strip() for t in cookie.split(";") if t.strip()]
+    keep = []
+    for t in tokens:
+        name = t.split("=", 1)[0].strip()
+        if name in ("_cfuvid", "__cf_bm") or name.startswith("AMP_"):
+            continue
+        keep.append(t)
+    return "; ".join(keep)
+
+
 def _split_cookies(raw) -> list:
     """Postman Agent Mode session cookies: one full Cookie string per line
     (each contains '; ' separators, so the generic key splitter would mangle
     them). Each entry is a complete credential set (postman.sid + _pmt …)
-    that can be rotated/fall back independently."""
-    return _split_keys(raw, newline_only=True)
+    that can be rotated/fall back independently. Cloudflare-bound tokens are
+    stripped so the cookie works from the gateway's client (not just the
+    browser that generated it)."""
+    return [_sanitize_cookie(k) for k in _split_keys(raw, newline_only=True) if _sanitize_cookie(k)]
 
 
 # ── Load / Save ────────────────────────────────────────────────────────────
@@ -910,7 +932,13 @@ async def _try_postman(pid: str, backend_model: str, body: dict, stream: bool,
                        timeout: float = 120.0, errors=None):
     """Call Postman Agent Mode /_gw/chat with one session cookie, rotating to
     the next cookie on 401/403 (expired session) and 429 (rate limit) — the
-    same fallback semantics as API-key providers."""
+    same fallback semantics as API-key providers.
+
+    429s are special: Postman reports ``ratelimit: limit=30, remaining=…,
+    reset=N`` (seconds). When reset is short we WAIT and retry the same
+    session instead of instantly reporting the provider as busy — a single
+    burst of tests (e.g. one request per model) otherwise makes every model
+    look unavailable at once."""
     def note(reason, status=None):
         if errors is not None:
             errors.append({"provider": pid, "model": backend_model, "status": status, "error": str(reason)[:200]})
@@ -928,8 +956,26 @@ async def _try_postman(pid: str, backend_model: str, body: dict, stream: bool,
     if not eps:
         note("no session cookies configured — paste full Cookie strings "
              "(postman.sid=…; _pmt=…), one per line"); return None
-    attempts = len(eps)
+    # +2 spare attempts: a 429 with a short reset sleeps and retries in-place
+    # instead of burning the rotation budget.
+    attempts = len(eps) + 2
     last = "no usable session cookie"
+    waited_429 = False
+
+    def _retry_seconds(resp) -> int:
+        """Seconds until Postman's chat rate limit resets (0 = unknown/none)."""
+        try:
+            rl = resp.headers.get("ratelimit", "")
+            for part in rl.split(","):
+                k, _, v = part.strip().partition("=")
+                if k.strip() == "reset":
+                    return max(1, int(v))
+            xr = resp.headers.get("x-ratelimit-reset", "")
+            if xr.strip().isdigit():
+                return max(1, (int(xr) - int(time.time() * 1000)) // 1000)
+        except Exception:
+            pass
+        return 0
 
     for _ in range(attempts):
         sel = next_endpoint(pid)
@@ -940,7 +986,10 @@ async def _try_postman(pid: str, backend_model: str, body: dict, stream: bool,
             "Content-Type": "application/json",
             "x-pstmn-req-service": "agent-mode-service",
             "x-app-version": prov.get("app_version") or POSTMAN_APP_VERSION,
-            "Cookie": cookie,
+            # Sanitize even already-stored cookies: Cloudflare-bound tokens
+            # (_cfuvid/__cf_bm) pasted before the sanitizer existed would
+            # otherwise 403-1010 from the gateway's own client.
+            "Cookie": _sanitize_cookie(cookie),
         }
         payload = _postman_build_body(body, backend_model, prov)
         url = base_url.rstrip("/") + "/chat"
@@ -950,13 +999,26 @@ async def _try_postman(pid: str, backend_model: str, body: dict, stream: bool,
             resp = await client.send(req, stream=True)
             sc = resp.status_code
             if sc in (401, 403, 429):
+                if sc == 429 and not waited_429:
+                    wait = _retry_seconds(resp)
+                    await resp.aclose(); await client.aclose()
+                    if 0 < wait <= 45:
+                        waited_429 = True
+                        logger.info(f"Postman 429 for {pid}/{backend_model} — waiting {wait}s then retrying (rate limit)")
+                        await asyncio.sleep(wait)
+                        last = f"HTTP 429 (waited {wait}s, retried)"
+                        continue  # same session stays eligible — no cooldown mark
                 await resp.aclose(); await client.aclose()
                 mark_endpoint_failed(pid, base_url, cookie)
                 last = f"HTTP {sc} (session invalid/rate-limited - rotating to next cookie)"
                 continue
             if sc in RETRYABLE:
                 await resp.aclose(); await client.aclose()
-                mark_model_failure(pid, backend_model); mark_failure(pid)
+                # Provider-level outage (5xx / Cloudflare 520-524): do NOT lock
+                # the MODEL — transient infra errors must not make a healthy
+                # model report "busy" for 2 minutes while another model that
+                # happened to succeed keeps working.
+                mark_failure(pid)
                 last = f"HTTP {sc} (server error)"; continue
             if sc >= 400:
                 txt = ""
@@ -965,6 +1027,16 @@ async def _try_postman(pid: str, backend_model: str, body: dict, stream: bool,
                 except Exception:
                     pass
                 await resp.aclose(); await client.aclose()
+                # Model no longer served by Postman (catalog rotates) → drop it
+                # from the advertised cache so it stops being offered + failing.
+                _tl = txt.lower()
+                if any(h in _tl for h in ("not found", "invalid model", "unknown model",
+                                          "does not exist", "unsupported model", "model not available")):
+                    cache = provider_models_cache.get(pid, [])
+                    if backend_model in cache:
+                        provider_models_cache[pid] = [m for m in cache if m != backend_model]
+                        save_provider_models_cache()
+                        logger.warning(f"Dropped {pid}/{backend_model} from catalog — Postman no longer serves it")
                 mark_model_failure(pid, backend_model)
                 note(txt or f"HTTP {sc}", sc); return None
 
@@ -2197,9 +2269,12 @@ def seed_postman():
 
     # Provider-tab catalog + FREE/PAID badges (all consume Postman credits → paid)
     existing_cache = provider_models_cache.get("postman", [])
-    merged = list(dict.fromkeys(existing_cache + [k for k, _ in POSTMAN_MODELS]))
-    if merged != existing_cache:
-        provider_models_cache["postman"] = merged
+    if not existing_cache:
+        # Only seed the cache on a FRESH boot (no live sync yet). If a live
+        # /_gw/config sync already populated it, that list is authoritative —
+        # re-adding hardcoded keys here would resurrect models Postman no
+        # longer serves for this account (catalog is team/plan-dependent).
+        provider_models_cache["postman"] = [k for k, _ in POSTMAN_MODELS]
         save_provider_models_cache()
     prov_tiers = provider_model_tiers.get("postman", {})
     tiers_changed = False
@@ -2476,7 +2551,7 @@ async def auto_sync_provider_models():
         if api_keys and prov.get("kind") != "postman":
             headers["Authorization"] = f"Bearer {api_keys[0]}"
         if prov.get("kind") == "postman":
-            headers["Cookie"] = api_keys[0] if api_keys else ""
+            headers["Cookie"] = _sanitize_cookie(api_keys[0]) if api_keys else ""
             headers["x-pstmn-req-service"] = "agent-mode-service"
             headers["x-app-version"] = prov.get("app_version") or POSTMAN_APP_VERSION
         try:
@@ -3222,7 +3297,7 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
     if api_keys and prov.get("kind") != "postman":
         headers["Authorization"] = f"Bearer {api_keys[0]}"
     if prov.get("kind") == "postman":
-        headers["Cookie"] = api_keys[0] if api_keys else ""
+        headers["Cookie"] = _sanitize_cookie(api_keys[0]) if api_keys else ""
         headers["x-pstmn-req-service"] = "agent-mode-service"
         headers["x-app-version"] = prov.get("app_version") or POSTMAN_APP_VERSION
     try:
@@ -3248,23 +3323,36 @@ async def admin_sync_provider_models(provider_id: str, request: Request):
                     if m.get("id") and m.get("available", True) is not False
                 ]
             if model_ids:
-                # Merge with existing cache (some models like Z.AI free/vision aren't in /models but work)
-                existing = provider_models_cache.get(provider_id, [])
-                merged = list(dict.fromkeys(model_ids + existing))
-                provider_models_cache[provider_id] = merged
-                save_provider_models_cache()
-                logger.info(f"Cached {len(merged)} models for provider {provider_id} ({len(model_ids)} from API)")
+                if prov.get("kind") == "postman":
+                    # /_gw/config IS the authoritative catalog — REPLACE, never
+                    # merge. Merging would keep advertising keys Postman no
+                    # longer serves for this account (the catalog is
+                    # team/plan-dependent and rotates), and picking a stale key
+                    # fails with 400 → "all providers busy".
+                    provider_models_cache[provider_id] = model_ids
+                    save_provider_models_cache()
+                    logger.info(f"Cached {len(model_ids)} Postman models (authoritative from /_gw/config)")
+                else:
+                    # Merge with existing cache (some models like Z.AI free/vision aren't in /models but work)
+                    existing = provider_models_cache.get(provider_id, [])
+                    merged = list(dict.fromkeys(model_ids + existing))
+                    provider_models_cache[provider_id] = merged
+                    save_provider_models_cache()
+                    logger.info(f"Cached {len(merged)} models for provider {provider_id} ({len(model_ids)} from API)")
 
             # Also merge seeded/cached models into the response so admin UI shows all
-            cached_ids = set(m.get("id", "") for m in data.get("data", []))
-            for extra_id in provider_models_cache.get(provider_id, []):
-                if extra_id and extra_id not in cached_ids:
-                    data.setdefault("data", []).append({
-                        "id": extra_id,
-                        "object": "model",
-                        "created": 1700000000,
-                        "owned_by": provider_id,
-                    })
+            # (NOT for Postman: its live /_gw/config is complete — re-adding
+            # cached extras would resurrect stale keys in the dropdown).
+            if prov.get("kind") != "postman":
+                cached_ids = set(m.get("id", "") for m in data.get("data", []))
+                for extra_id in provider_models_cache.get(provider_id, []):
+                    if extra_id and extra_id not in cached_ids:
+                        data.setdefault("data", []).append({
+                            "id": extra_id,
+                            "object": "model",
+                            "created": 1700000000,
+                            "owned_by": provider_id,
+                        })
 
             # Inject tier info into each model from provider_model_tiers
             tiers = provider_model_tiers.get(provider_id, {})
